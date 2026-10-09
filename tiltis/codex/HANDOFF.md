@@ -191,3 +191,11 @@ Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57Z
 기존 SO101 SDK·FK/IK·깊이 수집은 재사용한다. 실행본의 접근 높이·턱 중심 오프셋·가까운 IK 해 선택·실제 관절과 FK/계획 TCP 오차 기록은 유용한 통합 후보다. 실행본은 여전히 radial yaw이며, 공유 상자 3D 축 정렬/preflight/접근 후 재확인/계산 lift 연결이 없으므로 전체 파일로 덮어쓰지 않는다. 관절 안정화 2→5° 완화와 절대 Z 옵션은 실측 검증 없이 적용하지 않는다. 기존 registration은 LWIR↔RGB homography이며 RGB↔depth 3D 정합으로 쓰지 않는다.
 
 이번 변경은 검토 문서와 이 인계뿐이다. Git fetch/status, 해시/정규화 차이·관련 함수 읽기를 수행했고 기능/자동 테스트는 새로 실행하지 않았다. 배포 파일·서버·카메라·COM8·실측 보정/자세에 쓰기나 로봇 명령 없음. 다음은 유용한 후보를 상자 방향/기존 guard를 유지하는 회귀와 함께 통합하고 RGB-depth/TCP/실측 경로·속도·stop을 확인하는 것이다. 실행본의 dry_run은 물리 이동이 있으므로 이번 검토에서 호출하지 않았다.
+
+## 2026-10-09 Claude 새 푸시 3dffdae 확인
+
+사용자 요청으로 origin/main을 fetch하고 7c5a302→3dffdae fast-forward했다. 35파일 변경에 현장 턱 오프셋/접근/IK·자동 hand-eye·면별 테이프 count-golden과 인계가 포함됐다. 현장 보정/자세 Git 제외를 보존했다. 인계의 전 과정 2회 완주를 읽었고, 실행 서버 GET status/runs에서도 hardware mode 및 run31/32 done/suspect/placed_bin=human/error=null을 확인했다. 새 실기/영상 확인이 아닌 서버 기록 증거다.
+
+상대 집기 관련 부분 테스트 24 pass(19.51s), 센서 rules 13 pass(7.10s). 반면 Codex vision_pick 22 fail/36 pass(5.23s), rgb_box 6 fail/37 pass(1.20s): 공유에서 camera_grasp_point/side_box_alignment 및 table_roi/object_mask, preflight/접근 후 재확인/계산 lift 연결이 삭제됐다. 상자 회전 도달 불가를 radial 자세로 바꿔 통과하는 회귀도 확인했다. 촬영 timestamp/엄격 ROI·복수 후보 거부/미보정 해시 검사가 제거된 점은 diff로 확인. 결과와 실제 명령/한계는 [새 푸시 검토](../claude-code/reviews/CODEX_PUSH_REVIEW_3dffdae.md)에 있다.
+
+이번에는 검토/테스트/인계만 수행해 기능 코드는 변경하지 않았다. 기존 8000/8001 및 C:/PAC2026_system, 실측 보정/자세·COM8에 쓰기/로봇 명령 없음. 다음 통합은 현장 개선을 보존하면서 SAM–depth 계약, 상자 축 정렬, guard, 현재 lift를 연결해 위 실패를 해결해야 한다. 파랑 분류/흰 상자/열화상 기준은 Claude 인계에서 남은 실기 항목이다.

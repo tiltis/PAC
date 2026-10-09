@@ -119,3 +119,7 @@ c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재�
 - 타이밍 정책: 현장 촬영 5장으로 생성. SINGLE_SPECIMEN=1.
 - 현장 보정 파일(poses.json, handeye.json, rules.json, timing_policy.json, grasp/object config)은 Git에 올리지 않고 OneDrive/PAC2026_노트북용/현장보정_20261009/에 백업.
 - 남은 일: 테이프 3개 상자 → 파랑 확인, 흰 상자 집기 확인, 냉매(열화상) 기준(roi-coolant + fit).
+
+## Codex 확인: 새 푸시 3dffdae의 연결 회귀
+
+사용자 요청으로 새 푸시를 동기화하고 읽기/모의 테스트를 수행했다. GET status/runs에서 hardware 및 run31/32 done/human/error=null 기록을 확인했다. 현장 개선은 보존했다. 상대 집기 부분24/rules13 pass이지만 Codex vision_pick22 fail/36 pass, rgb_box6 fail/37 pass이다. 공유의 상자 축 정렬·camera_grasp_point·SAM table_roi/object_mask, preflight/접근 후 재확인/계산 lift 연결이 빠졌다. 촬영 timestamp·ROI/복수 후보·누락 보정 해시 검사 제거도 diff로 확인했다. 상세 근거/명령/범위는 [검토 기록](reviews/CODEX_PUSH_REVIEW_3dffdae.md). 이번에는 검토/기록만 수행하고 기능/배포/로봇은 변경하지 않았다. 현장 개선과 기존 SAM/guard 계약을 함께 통합하는 작업이 남는다.
