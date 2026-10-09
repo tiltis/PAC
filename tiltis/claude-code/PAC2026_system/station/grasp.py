@@ -44,6 +44,19 @@ def load_config():
     return cfg
 
 
+def camera_grasp_point(loc, cfg):
+    """Calibration and planning must refer to the same grasp point (camera mm)."""
+    n = np.asarray(loc["table_normal_cam"], float)
+    n = n / np.linalg.norm(n)
+    depth_mm = cfg.get("grasp_depth_mm")
+    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
+        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
+                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
+    if depth_mm is None:
+        depth_mm = cfg["tab_height_mm"] / 2.0
+    return np.asarray(loc["top_center_cam_mm"], float) - n * depth_mm, float(depth_mm)
+
+
 def plan(loc, he, robot=None, cfg=None, joint_map=None):
     """성공: {"ok": True, "approach"/"grasp"/"lift": LeRobot 관절 dict, ...}. 실패: {"ok": False, "reason": ...}"""
     cfg = cfg or load_config()
@@ -62,14 +75,8 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
     tilt = np.degrees(np.arccos(np.clip(n[2], -1, 1)))
     if tilt > cfg["max_normal_tilt_deg"]:
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
-    top = handeye.point(he, loc["top_center_cam_mm"])
-    depth_mm = cfg.get("grasp_depth_mm")
-    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
-        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
-                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
-    if depth_mm is None:
-        depth_mm = cfg["tab_height_mm"] / 2.0
-    grasp_p = top - n * depth_mm / 1000.0
+    grasp_cam, depth_mm = camera_grasp_point(loc, cfg)
+    grasp_p = handeye.point(he, grasp_cam)
     approach_p = grasp_p + n * cfg["approach_mm"] / 1000.0
     lift_p = grasp_p + n * cfg["lift_mm"] / 1000.0
     r = float(np.hypot(grasp_p[0], grasp_p[1]))

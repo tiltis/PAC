@@ -61,3 +61,13 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 3면 검사에서 정상/이상 의심/미판정/지속 측정 불가 각각의 목적지와 도착 후 그리퍼 해제·홈 복귀 회귀 4개 및 기존 모의 API 확인을 추가했다. 전체 스테이션 **110 passed, 4 warnings(54.61s)**. [Codex 인계](../codex/HANDOFF.md)에 실행 명령과 한계가 있다. 런타임 `destination`은 배치/실측 증거가 아니며 DB/CSV는 기존 `bin`, `placed_bin`을 유지한다.
 
 현장 `bin_ok`, `bin_human`의 실제 위치는 미티칭이며 실기 구동은 수행하지 않았다. 실행 중 배포본도 교체하지 않았다. 별도 8002 미리보기 실행은 자동 정책에 차단되어 변경 화면은 소스에서 검토해야 한다. 다음 Claude 작업은 두 영역 티칭·기존 접근 및 중단 문제·현장 경로 검증을 먼저 확인하고 이어서 한다.
+
+## Codex 후속: 깊이 기반 위치 변경 집기 (2026-10-09)
+
+사용자 요청으로 기존 검출/IK/분류기를 재사용해 [Codex 검증 picker와 미리보기](../codex/vision_pick/README.md)를 연결했다. 기존 아래쪽 탐색/ROI 밖 포함 문제를 재현하고 `sensor/locate.py`에서 탐색과 평면 맞춤 ROI를 분리했다. 동일/상이한 후보 상자가 여러 개면 거부하며, 수직 하향 카메라의 평면 basis도 보강했다. `sensor/server.py`가 프레임 수신 시각을 보낸다. `station/sequencer.py`에는 선택적 `verify_at_grasp()` 연결만 추가하여 접근 후 이동한 상자를 하강·닫기 전에 거부한다. `run_station.ps1 -PickMode vision`이 Codex wrapper를 선택한다.
+
+`station/grasp.py`/`teach.py`에는 hand-eye와 집기에서 같은 파지점을 쓰는 helper를 적용했다. 손잡이 없는 상자에서 윗면 vs 20~35mm 아래 파지점이 달랐던 문제를 수정한 것이며, 배포본의 guided 모드/상자별 자세를 덮어쓰지 않았다. 현재 기준 소스의 위에서 집기 planner와 배포본의 옆 집기 티칭을 같은 동작으로 취급하지 않는다.
+
+실제 실행: 센서 **117 passed, 9 warnings(56.71s)**, 스테이션 **110 passed, 4 warnings(66.67s)**, Codex guard **38 passed, 1 warning(3.16s)**. 명령·변경 근거·실제 깊이 프레임 재검사 한계는 [Codex HANDOFF](../codex/HANDOFF.md) 마지막 절에 있다. 실제 카메라 API는 현재 후보를 확정하지 못했고, 새 검출기의 오프라인 후보도 영상 가장자리라 승인하지 않았다. 읽기 전용 미리보기는 모터 명령을 보내지 않는다.
+
+현재 hand-eye/실측 workspace가 없어 guarded 계획은 승인되지 않는다. FK/단위·도구 기준점, 실제 집게 폭/경로 충돌/속도/stop, 분류 자세와 사용자의 실기 승인이 남아 있다. 이번 변경은 source만이며 실행 중 C:/PAC2026_system, 티칭/COM8, 실제 poses/calibration, 8000/8001 서버를 자동 교체하지 않았다. 먼저 배포본의 상대 guided 변경을 보존하여 통합하고 카메라/로봇을 고정한 상태에서 좌표 보정을 이어갈 것.

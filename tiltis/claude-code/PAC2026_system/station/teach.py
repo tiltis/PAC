@@ -79,11 +79,11 @@ def fk_check(robot: So101Robot) -> None:
 def calibrate_handeye(robot: So101Robot, sensor_url: str, points: int) -> None:
     import handeye
     import kinematics as K
-    from grasp import load_config
+    from grasp import camera_grasp_point, load_config
     from sensor_client import SensorClient
     model, jm, cfg, sensor = K.SO101(), K.load_joint_map(), load_config(), SensorClient(sensor_url)
     cam, rob = [], []
-    print(f"손잡이 붙은 상자를 집기 영역의 서로 다른 {points}곳(넓게)에 차례로 놓는다.")
+    print(f"상자를 집기 영역의 서로 다른 {points}곳(넓게)에 차례로 놓는다. FK/도구 기준점을 실측 확인한 뒤 진행한다.")
     while len(cam) < points:
         robot.enable_torque()
         if input(f"[{len(cam) + 1}/{points}] 상자를 놓고 손을 뗀 뒤 Enter (q=중단) ").strip() == "q":
@@ -92,11 +92,10 @@ def calibrate_handeye(robot: So101Robot, sensor_url: str, points: int) -> None:
         if not loc.get("found"):
             print("  상자를 못 찾음:", loc.get("reason"), loc.get("rejected", ""))
             continue
-        n = np.array(loc["table_normal_cam"])
-        c = np.array(loc["top_center_cam_mm"]) - n * cfg["tab_height_mm"] / 2  # 손잡이 높이 가운데
-        print(f"  카메라: 손잡이 {loc['top_size_mm']}mm, 중심 {np.round(c, 1).tolist()}")
+        c, depth_mm = camera_grasp_point(loc, cfg)
+        print(f"  카메라: 집는 점 {np.round(c, 1).tolist()}mm (윗면 아래 {depth_mm:.1f}mm)")
         robot.disable_torque()
-        input("  토크 OFF. 상자를 밀지 않게 그리퍼로 손잡이 가운데를 잡고(손끝이 손잡이 높이 가운데) Enter ")
+        input(f"  토크 OFF. 상자를 밀지 않게 집게의 도구 기준점을 표시된 집는 점(윗면 아래 {depth_mm:.1f}mm)에 맞추고 Enter ")
         q = K.from_lerobot(robot.current_joints(), jm)
         p = model.fk(q)[:3, 3]
         print(f"  로봇: 집게 끝 {np.round(p * 1000, 1).tolist()} mm")

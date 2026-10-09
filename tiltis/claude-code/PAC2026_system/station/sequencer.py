@@ -242,6 +242,12 @@ class Sequencer:
         self._move_joints("vision_approach", plan["approach"])
         if self.picker.dry_run:
             raise _DryRun()
+        # Codex의 검증 picker는 접근 후 상자가 이동/회전했는지 다시 확인한다.
+        verifier = getattr(self.picker, "verify_at_grasp", None)
+        if verifier is not None:
+            check = self._step("vision:recheck", lambda: verifier(loc))
+            if not check.get("ok"):
+                raise SequenceError(f"집기 직전 위치 확인 실패: {check.get('reason')}")
         self._move_joints("vision_grasp", plan["grasp"])
         self._grip("closed")
         self._check_grasp("pick")

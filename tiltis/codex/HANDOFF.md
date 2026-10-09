@@ -106,3 +106,30 @@ Codex 수정: `claude-code/PAC2026_system/sensor/server.py`의 깊이 과반 집
 이후 COM8 보정 프로세스가 모두 종료된 것을 확인하고 15:22:50에 `robot_status.py --model so101 --port COM8 --id so101_follower`를 실행했다. **실제 모터 6개 handshake/read 성공, calibration_matches_motors=true, 6개 Torque_Enable=0**. 15:22:07에 새로 저장된 파일에서 shoulder_pan 범위는 2579tick으로 갱신됐다(위 148tick은 재보정 전 기록). 보정된 팔 관절 deg와 그리퍼 0~100 관측을 읽었고 종료 시 버스를 닫았다. 모터 목표·토크·보정·카메라 설정은 쓰지 않았다. 이 실제 조회는 위의 초기 미조회 단계 이후 결과이며, 모의 테스트를 실제 구동이라고 바꿔 적은 것이 아니다.
 
 여전히 팔 형상/현장 frame·EE·관절 제한·분류 경로를 실측 검증한 것은 아니다. `motion_readiness=not_verified`를 유지하며 실제 이동은 하지 않았다. 분류 위치 파일도 없으므로 기존 station 실기 모드를 자동 시작하지 않는다. 파랑/빨강 및 집기/제시 자세 티칭과 기존 중단/접근 문제 검증이 다음 단계다.
+
+## 2026-10-09 후속: 위치가 바뀌는 상자의 깊이 기반 집기 연결
+
+사용자가 깊이 카메라로 상자 위치를 찾아 집도록 요청했다. 상대의 기존 `locate.py`, `grasp.VisionPicker`, hand-eye/FK/IK, sequencer를 검토·재사용했다. 별도 SDK나 로봇 제어기를 만들지 않았다. Codex 검증 코드는 [vision_pick/README.md](vision_pick/README.md)에 분리했다. 원격 `764c41e`, `03dba0d`를 먼저 확인하고 fast-forward로 반영했다.
+
+상대 구현 수정 근거: 기본 탐색은 화면 아래쪽으로 제한되고 명시적인 ROI도 x 범위를 벗어나는 물체를 포함하던 마스크였다. 책상 평면 맞춤 영역과 탐색 영역을 분리하고 기본 탐색은 전체 깊이 화면으로, 명시적인 pick ROI는 엄격하게 제한했다. 같은/다른 상자 후보가 여러 개면 거부한다. 카메라가 수직으로 내려볼 때 평면 basis의 0 나눗셈도 수정했다. 센서 결과에 중앙값 영상의 첫 프레임 수신 시각 `captured_at_s`와 마지막 `last_frame_at_s`를 추가했다. 응답 완료 `time`과 구별한다.
+
+`codex/vision_pick/guard.py`는 기존 picker를 확장한다. 서로 다른 관측 3회, 이동 5mm·회전 10° 이내, 영상 나이 2초 이내, frame/단위/유한값, 이미지 가장자리 8px 여유, hand-eye 강체 변환·점 수·RMS를 검사한다. 물리적 workspace에 가상 좌표를 기본값으로 넣지 않았다. `grasp_config.json`의 실측 workspace(`base_link`, m, min/max)가 있어야 하고 접근/집기/들기 IK 해의 FK 도구 점이 모두 안에 있어야 한다. 접근 후 다시 관측해 상자가 바뀌면 하강/닫기 전에 기존 error/stop 흐름으로 전환한다. 이 체크는 링크 충돌/실제 속도/hold 성공 검증이 아니다.
+
+`station_app.py`가 기존 웹 앱과 sequencer에 guard를 연결한다. 공유 `run_station.ps1 -PickMode vision`도 이 entry를 선택한다. `-VisionPreview` 또는 `preview.py`는 읽기 전용 계획 확인을 제공한다. `PICK_DRY_RUN=1`은 실기에서 실제 접근/홈 이동이므로 읽기 전용과 다르다. 손잡이 없는 상자의 hand-eye 티칭은 윗면을 참조하고 집기 계산은 20~35mm 아래를 참조하던 불일치가 있었으므로 공통 `camera_grasp_point`를 사용하도록 최소 수정했다. 배포본의 guided 티칭 변경은 덮어쓰지 않았다.
+
+실행 결과:
+
+```powershell
+# claude-code/PAC2026_system 에서
+& 'C:/PAC2026_system/.venv-sensor/Scripts/python.exe' -m pytest sensor/tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+# codex/vision_pick 에서
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m pytest tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' preview.py --system-dir C:/PAC2026_system
+```
+
+센서 **117 passed, 9 warnings (56.71s)**, 스테이션 **110 passed, 4 warnings (66.67s)**, Codex guard **38 passed, 1 warning (3.16s)**. 센서 회귀는 여러 실제 픽셀 위치·수평 회전(-30/30/55°)의 가상 깊이 영상, 엄격한 ROI, 두 종류/같은 종류 다중 상자, 수직 하향 카메라를 포함한다. guard는 신선도·연결 실패·관측 반복/회전/이동·보정/실측 workspace 거부, IK 계산 중 입력 노화, 접근 후 이동 시 하강/닫기 전 중단, 같은 앱에 연결, 미리보기 API의 모터 명령 부재를 확인했다. PowerShell parser와 `git diff --check`도 통과했다.
+
+실제 카메라 API의 읽기 전용 미리보기는 `found=false/no_candidate_box_matched`, `motion_enabled=false`였다. 17:06:59의 실제 깊이 프레임을 로컬 데이터 폴더에 저장해 새 검출기로 오프라인 재검사했을 때 화면 위쪽 후보가 나왔으나 bbox `[76,4,242,124]`로 가장자리 검사에 걸리는 위치다. 이 후보를 실제 상자로 확정하거나 로봇 좌표로 승인하지 않았다. 해당 bbox 거부 회귀를 추가했다. 영상/깊이 파일·실측 보정·poses.json은 Git에 넣지 않았다.
+
+실기 미완료: 현재 `C:/PAC2026_system/station/calib/handeye.json` 없음, 실측 workspace 없음, 관절 부호/URDF/도구 기준점 FK 확인·링크 충돌/실제 속도/통신 정지·분류 위치 티칭 미완료. 기존 planner는 위에서 집기이며 현재 guided 옆 집기와 동일하지 않다. 상태–행동 학습 데이터나 실제 집기 완료로 주장하지 않는다. 실행 중 티칭/8000/8001 서버, COM8, 실측 자세/보정 파일을 수정·종료하지 않았다. 다음은 상대의 배포본 guided 변경을 보존하여 소스와 통합하고, 티칭 종료 뒤 물리적 좌표 보정/범위 검증을 수행하는 것이다. 사용자의 실기 승인 전 로봇 모드를 켜지 않는다.
