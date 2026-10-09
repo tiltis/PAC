@@ -137,6 +137,7 @@
   a.link { color:var(--accent); font-weight:600; font-size:13px; text-decoration:none; padding:6px 10px; border:1px solid var(--line); border-radius:8px; }
   a.link:hover { background:var(--accent-soft); }
   @media (max-width:480px) { .field-row { grid-template-columns:1fr; } .kpis { grid-template-columns:1fr 1fr; } .camera { aspect-ratio:auto; min-height:120px; } }
+  #taught-path { display:none; }
 </style>
 </head>
 <body>
@@ -150,7 +151,6 @@
       </div>
     </div>
     <div class="top-status">
-      <a href="/pick-path" class="chip" style="text-decoration:none">집기 경로 설정</a>
       <span id="state" class="pill">대기</span>
       <span class="chip"><i></i><span id="robotMode">확인 중</span></span>
     </div>
@@ -251,6 +251,8 @@
 </main>
 
 <script>
+// Remove the legacy banner from servers started before this UI update.
+document.getElementById('taught-path')?.remove();
 const $ = id => document.getElementById(id);
 const NA = '없음';
 const STEP = { home:'홈 위치', pick_approach:'집기 접근', pick:'집기 위치', lift:'들어올리기',

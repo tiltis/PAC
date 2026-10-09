@@ -280,3 +280,10 @@ preview_server.py 안내/헤더 변경, overlay 및 preview API 테스트 합계
 현장 C:/PAC2026_system/station/web/index.html만 백업 원본과 hash 일치를 확인한 뒤 의미별 UI로 갱신했다. 현장에 이미 있던 Claude HOME 복귀·/hub 링크/처리 코드는 유지했다. 공유 저장소 app.py에는 해당 endpoint가 없으므로 이 두 현장 기능을 이번 UI 커밋에 새로 복사하지 않았다. 서버 재시작/카메라 재연결/로봇 명령은 없었다. GET / 200 및 3카드, 브라우저 JS 오류 없음, 사용자의 시료 R021713/갈색 상자 선택 보존을 확인했다. 저장된 실제 run166 관측에 새 표현 함수를 적용해 테이프 1개 누락 / 냉매 누락 의심 / 밑면 검사 대기를 확인했고 기록 표에서도 면 접두어 없이 표시됐다. 실제 새 검사는 실행하지 않았다.
 
 증거/복구본: C:/Users/tilti/PAC2026_data/station_semantic_ui_20261010/index.before.html, semantic_cards.png. 현장 idle/hardware 상태에서 UI만 적용했으며 냉매 정확도/집기·분류 완주/안전 검증은 이번 작업 범위에서 추가 확인하지 않았다. 사용자 요청과 현재 판정 정책을 유지한 표시 변경이므로 기존 Claude 제어 변경을 덮어쓰지 않았다.
+
+
+## 2026-10-10 — 상단 가르친 경로 문구 제거
+
+사용자 화면 요청에 따라 상단 집기 경로 배지와 taught_station.py가 삽입하던 긴 경로 안내를 제거했다. 변경 파일은 codex/vision_pick/taught_station.py와 상대 station/web/index.html이다. 기존 실행 서버는 Python 함수를 이미 로드했으므로 현장 HTML에 legacy #taught-path 숨김/DOM 제거를 함께 넣어 재시작 없이 즉시 적용했다. 다음 실행에서는 wrapper가 해당 안내를 삽입하지 않는다. /pick-path의 과거 링크는 /로 이동한다. 로봇 경로·API·실제 로봇 표시·비상정지 안내는 변경하지 않았다.
+
+현장 파일을 백업하고 동시 변경 유무를 확인해 해당 3개 UI 수정만 적용했다. 현장 강제 HOME/H 버튼 등 최근 Claude 변경을 보존했고 로봇/센서 서버 재시작과 이동 명령은 없었다. 현재 열린 8000을 새로고침한 실제 DOM에서 경로 배지와 aside 제거를 확인하고 시료/상자 선택을 보존했다. wrapper AST와 공유/현장 inline JavaScript 파싱 통과. 단순 표시 삭제라 새 테스트는 추가하지 않았다. 증거 C:/Users/tilti/PAC2026_data/station_header_clean_20261010/header_clean.png, index.before.html. 기존 미커밋 bootstrap.py는 이번 작업/커밋에서 제외한다.

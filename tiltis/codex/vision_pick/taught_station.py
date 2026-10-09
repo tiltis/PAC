@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-import html
 import json
 import os
 from pathlib import Path
@@ -105,20 +104,11 @@ def create_taught_app(station_dir=None, teaching_path=None):
 
     @app.get('/pick-path')
     def path_settings():
-        return RedirectResponse('/#taught-path')
+        return RedirectResponse('/')
 
     @app.get('/')
     def index():
         source = (station_dir / 'web/index.html').read_text(encoding='utf-8-sig')
-        message = ('가르친 경로 적용: HOME → 아래 위치 → 카메라로 찾은 상자 접근. '
-                   '두 위치 사이를 천천히 이동하며, 완전한 수직 직선 경로는 아닙니다. '
-                   '가까운 상자는 고정 거리 하한 대신 IK로 도달 여부를 확인합니다. '
-                   '검사 시작을 누르면 실제 로봇이 움직입니다.')
-        banner = ('<aside id="taught-path" style="max-width:1280px;margin:16px auto;padding:16px 20px;'
-                  'background:#eaf2ff;border:1px solid #b8cfff;border-radius:12px;color:#143862;'
-                  'font:600 15px/1.6 sans-serif">' + html.escape(message) + '</aside>')
-        source = source.replace('</header>', '</header>' + banner, 1)
-        source = source.replace('집기 경로 설정', '가르친 경로 적용됨')
         return HTMLResponse(source)
 
     return app
