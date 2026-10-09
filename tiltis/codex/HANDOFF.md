@@ -303,3 +303,14 @@ API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/p
 사용자가 바뀐 스테이션 디자인으로 전환을 요청했다. 현재 실행본의 Claude 디자인(Pretendard, 네이비 PAC 상단 바, 흰 카드, 1280px 반응형 2열)을 공유 소스의 station/web/index.html로 가져오고, 기존 /pick-path 링크를 새 상단 바에 유지했다. 실행본의 글꼴 제공 경로를 app.py에 통합하고 PretendardVariable.woff2 및 SIL OFL LICENSE.txt를 함께 보존했다. 집기 경로 설정 pick_path.html도 같은 디자인으로 맞췄으며 모든 ID와 JavaScript는 유지했다(스크립트 SHA-256 전후 동일).
 
 실제 8000 탭을 새로고침해 새 상단 바와 검사/진행/분류/카메라 카드 표시를 확인했다. 실행본 디자인은 이미 적용돼 있어 이번 작업은 서버 재시작이나 로봇/설정 변경을 하지 않았다. HOME 경로 설정 기능의 실기 배포 대기는 그대로다. 화면 증거: C:/Users/tilti/PAC2026_data/station_design_20261009/station_updated.png. 기존 집기 UI 테스트 2 passed (7.59s); 분류 이유 Node 테스트 14 passed (3.06s), git diff --check 통과.
+
+
+## 2026-10-09 23:51 KST — HOME 설정 기능 실행본 배포
+
+사용자가 팔을 받쳤다고 확인한 뒤 검증한 HOME 기능 6개 파일을 C:/PAC2026_system/station에 적용하고 기존 8000 서버를 재연결했다. 배포 전 PID/생성 시각/명령·단일 listener·idle·파일 hash·poses 불변을 확인했다. 최신 Claude 실행본의 색 영역 선택, place_spot, mark_processed, 글꼴/디자인을 보존했다. 실행본 전체를 공유 소스로 덮지 않았으며 기존 poses/calibration은 수정하지 않았다.
+
+실제 확인: 수신 PID34848, robot_mode=hardware, pick_mode=vision, state=idle, busy=false. /pick-path 페이지와 GET /api/pick-path/settings 정상, 화면에서 새 방식 선택 시 유효하지 않은 HOME 때문에 미리보기/적용 버튼이 비활성화된다. vis/lwir/depth 수신 및 Gemini ready/capture_time_verified=true 확인. 적용한 여섯 파일 hash 일치와 poses.json 변경 없음도 재확인했다. 기존 모드는 legacy다. HOME wrist_roll -163.38°가 모델 하한 -157.21° 밖이어서 새 경로 활성화·실기 이동은 하지 않았다. /api/run을 호출하지 않았다. 이전 배포 대기 기록은 이 배포 확인으로 갱신한다.
+
+증거는 C:/Users/tilti/PAC2026_data/home_approach_20261009의 deployment.json, startup_verification.json, deployed_settings.png, station_restart.log 및 runtime_backup_235059에 보관한다. 새 모터/경로 시험이 아니라 배포·연결·UI 상태 확인이며 기존 모의 테스트 결과와 구분한다. 다음은 실제 HOME과 SDK 관절 보정/URDF 대응을 확인한 뒤 유효한 수직 하강 경로를 미리보기로 검증하는 것이다.
+
+추가 읽기 진단: 설치 LeRobot so_follower.py의 calibrate는 wrist_roll을 full_turn_motor로 지정하고 해당 range를 실측하지 않고 0..4095로 저장한다. 현장 파일도 같은 범위이고 DEGREES 정규화는 약 -180..180도를 표현한다. station/kinematics.py는 joint_map.json이 없으면 SDK↔URDF 각도 1:1을 가정하며 URDF 손목 범위는 -157.21..162.79도다. 따라서 현재 거부는 드라이버/모델 범위 불일치의 증거이며 실제 기계 위험이나 새 HOME만으로 해결됨을 단정하지 않는다. 실제 영점/방향/기계·케이블 여유 확인 없이 한계를 확대하거나 offset을 만들지 않았다.
