@@ -16,7 +16,7 @@
 ```json
 {"session": "demo_1009", "specimen_id": "S01", "face": "A", "attempt": 0}
 ```
-- `face`: `"A"` 또는 `"B"`
+- `face`: `"A"`, `"B"` 또는 `"C"` (기본 A·B. 3면 테이프 검사는 스테이션 `FACES=A,B,C`로 C까지 보여 준다)
 - `attempt`: 같은 면의 0번째 촬영이면 0, 재촬영이면 1
 - `trigger_id`: 요청마다 새로운 고유 문자열. 스테이션이 생성하고 센서는 그대로 응답·저장한다. `single_stationary_specimen=true`는 촬영 종료까지 한 시료를 고정한다는 호출자의 전제이며 자동 재식별 증거가 아니다.
 - `session`·`specimen_id`는 최대 80자의 문자·숫자·밑줄·하이픈·내부 점만 허용한다. 경로 구분자, 선두·끝 점, Windows 예약 이름은 거부한다. 잘못된 요청은 촬영·로봇 이동 전에 HTTP 422로 거부한다.

@@ -393,3 +393,27 @@ def test_sensor_live_proxy(mock_sensor_url, tmp_path):
         r = client.get("/sensor-live", params={"specimen_id": "S01"})
         assert r.status_code == 200 and r.content[:4] == b"\x89PNG"
         assert client.get("/sensor-live", params={"specimen_id": "../x"}).status_code == 400
+
+
+def test_three_faces_inspect_c_and_any_suspect_goes_human():
+    # 3면 테이프 검사: FACES=A,B,C → face_C 자세까지 보여 주고, C면만 suspect여도 사람 확인함
+    robot = MockRobot(speed=0)
+    sensor = FakeSensor({("C", 0): "suspect"})
+    seq = Sequencer(robot, sensor, settle_timeout_s=0.1, faces="A,B,C")
+    r = seq.run("S3F", "t")
+    assert r["state"] == "done" and r["final_verdict"] == "suspect" and r["placed_bin"] == "human", r
+    assert [i["face"] for i in r["inspections"]] == ["A", "B", "C"]
+    moves = [c[1] for c in robot.calls if c[0] == "move_to"]
+    assert moves.index("face_A") < moves.index("face_B") < moves.index("face_C") < moves.index("bin_human")
+    assert seq.snapshot()["faces"] == ["A", "B", "C"]
+
+
+def test_faces_env_rejects_unknown_or_duplicate():
+    import pytest as _pt
+    from sequencer import SequenceError, decide, parse_faces
+    assert parse_faces("a, b ,c") == ("A", "B", "C")
+    for bad in ("", "A,A", "A,D", "B,X"):
+        with _pt.raises(ValueError):
+            parse_faces(bad)
+    with _pt.raises(SequenceError):
+        decide({"A": "no_anomaly", "B": "no_anomaly"}, ("A", "B", "C"))  # C 빠짐 → 정상 분류 금지

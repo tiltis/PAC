@@ -47,3 +47,9 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 ### 아직 못 한 것
 - 실제 로봇 전부(포트·보정·자세·집기 확인), 냉매 기준값, timing_policy, 카메라–로봇 좌표 맞추기, 면 B 규칙(없으면 `faces_without_checks_ok`).
 - 열화상이 RGB보다 왼쪽을 보고 있어 현장에서 재조준 필요.
+
+### 추가: 3면 검사(face_C), 2026-10-09 12:40
+- 요구: 테이프 3면 모두 확인, 1개라도 없거나 냉매 없으면 부적격(사람 확인 구역). 로봇이 상자를 돌려 A→B→C 세 면을 보여 준다.
+- 스테이션 `FACES` 환경변수(`run_all.bat ... -Faces A,B,C`, 기본 A,B). `sequencer.parse_faces/decide(faces)`, `robot.POSE_NAMES`에 `face_C`, 웹 화면은 검사하는 면 수만큼 카드 표시. 센서 `/inspect`와 rig가 face C 허용. CONTRACT 갱신.
+- 실행: 노트북 실제 카메라 + 가짜 로봇으로 `FACES=A,B,C` 1회 → 이동 순서 home > pick_approach > pick > lift > face_A > face_B > face_C > bin_human > home, 면 3개 모두 기록. 테스트: 스테이션 106 통과(3면 순서·누락 면 거부 테스트 추가).
+- 현장: `teach.py`에서 `face_C` 자세를 가르치고, 면 B·C 테이프 영역을 `roi-tape --face B/C --auto`로 잡아 fit 할 것. face_C 자세가 없으면 `-Faces A,B`로 실행.

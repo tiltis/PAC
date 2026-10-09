@@ -65,7 +65,8 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
     elif pick_mode != "taught":
         raise RuntimeError(f"알 수 없는 PICK_MODE: {pick_mode} (taught 또는 vision)")
     seq = Sequencer(robot, sensor, on_finish=store.save_run, durations=durations,
-                    advisor=advisor_from_env(), picker=picker)
+                    advisor=advisor_from_env(), picker=picker,
+                    faces=os.environ.get("FACES", "A,B"))  # 3면 검사: FACES=A,B,C (run_station -Faces A,B,C)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

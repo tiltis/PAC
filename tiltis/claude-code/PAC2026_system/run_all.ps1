@@ -4,7 +4,8 @@
 #   run_all.bat -Depth -Robot so101 -RobotPort COM5    현장 실기(가르친 자세로 집기)
 #   ... -PickMode vision -DryRun                       비전 집기: 손잡이 위 접근 위치까지만 시험
 param([switch]$Fake, [switch]$Depth, [string]$Robot = 'mock', [string]$RobotPort = '',
-      [ValidateSet('taught', 'vision')][string]$PickMode = 'taught', [switch]$DryRun, [switch]$SingleSpecimen)
+      [ValidateSet('taught', 'vision')][string]$PickMode = 'taught', [switch]$DryRun, [switch]$SingleSpecimen,
+      [string]$Faces = 'A,B')
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $ps = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File')
@@ -19,7 +20,7 @@ for ($i = 0; $i -lt 40; $i++) {
     try { if ((Invoke-RestMethod http://127.0.0.1:8001/health -TimeoutSec 2).ok) { $ok = $true; break } } catch { }
 }
 if (-not $ok) { Write-Host '센서 서버가 준비되지 않음. 센서 창의 오류를 확인' -ForegroundColor Yellow }
-$stationArgs = @('-Robot', $Robot, '-PickMode', $PickMode)
+$stationArgs = @('-Robot', $Robot, '-PickMode', $PickMode, '-Faces', $Faces)
 if ($RobotPort) { $stationArgs += @('-RobotPort', $RobotPort) }
 if ($DryRun) { $stationArgs += '-DryRun' }
 if ($SingleSpecimen) { $stationArgs += '-SingleSpecimen' }

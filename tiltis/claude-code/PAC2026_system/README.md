@@ -52,6 +52,7 @@ setup_station.bat -Robot                     :: 설치 + 테스트 (+ LeRobot, �
 run_all.bat -Fake                            :: 카메라·로봇 없이 센서+스테이션 함께 시험
 run_all.bat -Depth                           :: 실제 카메라 3대 + 가짜 로봇
 run_all.bat -Depth -Robot so101 -RobotPort COM5   :: 현장: 실제 로봇(가르친 자세로 집기)
+run_all.bat -Depth -Robot so101 -RobotPort COM5 -Faces A,B,C   :: 3면 검사(face_C 자세를 가르쳐야 함)
 ```
 - `run_all.bat`은 센서와 스테이션을 각각 새 창으로 띄운다. 끌 때는 두 창에서 Ctrl+C.
 - 현장 로봇 준비(모두 `.venv-station\Scripts\` 안의 명령):
@@ -83,12 +84,14 @@ make_package.py        이 폴더를 zip으로 묶기
 
 ## 5-1. 테이프·냉매 규칙 현장 절차 (`sensor/rules_calib.py`)
 1. 로봇이 면 A 자세로 상자를 든 상태에서 검사 1회 → 촬영 폴더(`PAC2026_DATA/<세션>/<시료>_A_...`)
-2. `python sensorules_calib.py roi-tape --capture <폴더> --face A --auto --count <그 면에서 보이는 테이프 수>` → `rules_tape_rois.jpg` 확인. 면 B도 같은 방법.
+2. `python sensor
+ules_calib.py roi-tape --capture <폴더> --face A --auto --count <그 면에서 보이는 테이프 수>` → `rules_tape_rois.jpg` 확인. 면 B도 같은 방법.
    - 초록 색 범위는 H 35~95(10-09 시편 청록 테이프 H 81~84 실측). 테이프가 안 잡히면 조명·노출을 먼저 본다.
 3. 테이프 **있는** 상자로 3회 이상, **없는(또는 떼어 낸)** 상자로 3회 이상 검사 → `fit --tape-on <폴더들> --tape-off <폴더들>` → `validated: true`가 나와야 판정에 쓴다.
 4. 다른 세션 촬영으로 `eval` → 맞음 n/n 확인.
 5. 결과 화면·기록: 면별 `tape_expected / tape_present_count / tape_missing_count / tape_missing_ids` (웹 화면: "테이프 2/3 (누락 T2)").
-   3면 테이프는 면 A·B 자세에서 **보이는 테이프를 전부** 영역으로 잡는다(한 자세에 두 면이 보이게 비스듬히 들면 2+1로 3개).
+   3면 테이프: `-Faces A,B,C`로 로봇이 상자를 돌려 **A→B→C 세 면**을 차례로 보여 준다(`teach.py`에서 `face_C` 자세 추가). 면마다 `roi-tape --face <면> --auto --count <그 면의 테이프 수>`.
+   한 자세에 두 면이 보이게 비스듬히 들면 두 자세로도 3개를 잡을 수 있다. 어느 쪽이든 면별 `tape_expected`를 다 채워야 하고, 하나라도 누락이면 suspect → 사람 확인함.
 
 ## 6. 아직 현장에서만 확인할 수 있는 것
 - SO-101 LeRobot 호출(`station/robot.py`의 `# 현장 확인` 표시), `teach.py`

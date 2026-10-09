@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 DEFAULT_DURATIONS = {  # 이동별 기본 소요 시간(초). 현장에서 조정
     "home": 2.0, "pick_approach": 2.0, "pick": 1.5, "lift": 1.5,
-    "face_A": 2.0, "face_B": 2.0, "bin_ok": 2.5, "bin_human": 2.5,
+    "face_A": 2.0, "face_B": 2.0, "face_C": 2.0, "bin_ok": 2.5, "bin_human": 2.5,
     "vision_approach": 2.5, "vision_grasp": 1.5, "vision_lift": 1.5,
 }
 
@@ -30,10 +30,22 @@ class _DryRun(Exception):
     """비전 집기 시험: 접근 위치까지만 가고 멈춘다."""
 
 
-def decide(final_by_face: dict) -> tuple:
-    """CONTRACT 최종 판정 규칙. 면별 최종 verdict -> (최종 verdict, 분류함)."""
+DEFAULT_FACES = ("A", "B")
+ALLOWED_FACES = ("A", "B", "C")
+
+
+def parse_faces(text) -> tuple:
+    """환경변수 FACES("A,B" 또는 "A,B,C") → 검사할 면 순서. 모르는 면·중복·빈 값은 거부한다."""
+    faces = tuple(f.strip().upper() for f in str(text or "").split(",") if f.strip())
+    if not faces or len(set(faces)) != len(faces) or any(f not in ALLOWED_FACES for f in faces):
+        raise ValueError(f"FACES는 {','.join(ALLOWED_FACES)} 중에서 중복 없이 골라야 한다: {text!r}")
+    return faces
+
+
+def decide(final_by_face: dict, faces=DEFAULT_FACES) -> tuple:
+    """CONTRACT 최종 판정 규칙. 면별 최종 verdict -> (최종 verdict, 분류함). 검사하기로 한 면이 하나라도 빠지면 오류."""
     verdicts = list(final_by_face.values())
-    if set(final_by_face) != {"A", "B"} or any(
+    if set(final_by_face) != set(faces) or any(
             v not in ("suspect", "unmeasurable", "review", "no_anomaly") for v in verdicts):
         raise SequenceError(f"불완전하거나 알 수 없는 면별 판정: {final_by_face}")
     if "suspect" in verdicts:
@@ -83,7 +95,8 @@ class Sequencer:
     def __init__(self, robot, sensor, on_event: Optional[Callable[[dict], None]] = None,
                  on_finish: Optional[Callable[[dict], None]] = None,
                  durations: Optional[dict] = None, settle_timeout_s: float = 5.0, advisor=None,
-                 picker=None):
+                 picker=None, faces=DEFAULT_FACES):
+        self.faces = parse_faces(faces if isinstance(faces, str) else ",".join(faces))
         self.robot = robot
         self.sensor = sensor
         self.picker = picker  # 비전 집기(grasp.VisionPicker). None이면 가르친 자세로 집는다
@@ -123,7 +136,7 @@ class Sequencer:
             last = copy.deepcopy(self._last) if self._last else None
             busy, paused = self._busy, self._paused
         state = cur["state"] if cur else (last["state"] if last else "idle")
-        return {"state": state, "busy": busy, "paused": paused,
+        return {"state": state, "busy": busy, "paused": paused, "faces": list(self.faces),
                 "current": cur, "last_result": last}
 
     def start(self, specimen_id: str, session: str) -> None:
@@ -341,9 +354,9 @@ class Sequencer:
         self._move("lift")
         self._check_grasp("lift")
         finals = {}
-        for face in ("A", "B"):
+        for face in self.faces:  # 기본 A·B. 3면 테이프 검사는 FACES=A,B,C로 face_C 자세(손목을 더 돌려 3번째 면)를 추가한다
             finals[face] = self._inspect_face(face)
-        verdict, bin_name = decide(finals)
+        verdict, bin_name = decide(finals, self.faces)
         self._cur["final_verdict"] = verdict
         self._cur["bin"] = bin_name
         self._cur["decision_status"] = "decided"
