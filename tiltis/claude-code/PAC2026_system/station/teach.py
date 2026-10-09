@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -225,7 +226,7 @@ def calibrate_handeye(robot: So101Robot, sensor_url: str, points: int) -> None:
         print("저장:", handeye.save(res, cam, rob))
 
 
-def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.40, 0.44), angles_deg=(0, 15, 30), duration_s: float = 4.0) -> None:  # 10-09: 깊이 카메라가 로봇 정면~왼쪽만 봄
+def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.42, 0.46), angles_deg=(0, 15, 30), duration_s: float = 4.0) -> None:  # 10-09: 깊이 카메라가 로봇 정면~왼쪽만 봄
     """로봇이 스스로 옆집기 자세 6곳으로 가서 집게를 벌리고 기다린다. 사용자는 상자를 집게 사이에 끼우고 손을 뗀 뒤 Enter.
     로봇 점 = 실제 관절값의 FK, 카메라 점 = 깊이로 잰 상자 중심(가운데 높이). 사람이 팔을 옮길 필요가 없다."""
     import handeye
@@ -247,7 +248,11 @@ def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.40, 0.44
             if q is None:
                 print(f"  (건너뜀: r={r*100:.0f}cm 각도 {a}° 역기구학 해 없음)")
                 continue
-            q_back = model.ik(p - radial * 0.08, down=radial, yaw=float(t + np.pi / 2), q0=q)  # 상자를 끼운 뒤 8cm 물러나 카메라가 상자만 보게
+            q_back = None  # 상자를 끼운 뒤 물러나 카메라가 상자만 보게. 수평 접근은 38cm 밑에서 안 풀리므로 6→3cm 순으로 시도
+            for back in (0.06, 0.05, 0.04, 0.03):
+                q_back = model.ik(p - radial * back + np.array([0, 0, 0.01]), down=radial, yaw=float(t + np.pi / 2), q0=q)
+                if q_back is not None:
+                    break
             if q_back is None:
                 print(f"  (건너뜀: r={r*100:.0f}cm 각도 {a}° 물러날 자세 해 없음)")
                 continue
@@ -259,27 +264,45 @@ def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.40, 0.44
     robot.set_gripper("open")
     cam, rob = [], []
     for i, (p, q, q_back) in enumerate(targets, 1):
-        print(f"[{i}/{len(targets)}] 목표 ({p[0]*1000:.0f}, {p[1]*1000:.0f}, {p[2]*1000:.0f})mm 로 이동 중...")
-        robot.move_joints(K.to_lerobot(q, jm), duration_s)
+        print(f"[{i}/{len(targets)}] 목표 ({p[0]*1000:.0f}, {p[1]*1000:.0f}, {p[2]*1000:.0f})mm 로 이동 중... (상자는 아직 치워 둘 것)")
+        robot.move_joints(K.to_lerobot(q_back, jm), duration_s)
+        robot.wait_settled(4.0)
+        robot.move_joints(K.to_lerobot(q, jm), 2.0)
         print(f"   도착 안정화: {robot.wait_settled(5.0)}")
         while True:
             ans = input("   상자를 집게 사이(가운데)에 끼우고 손을 뗀 뒤 Enter (s=이 자리 건너뜀, q=중단) ").strip().lower()
             if ans in ("s", "q"):
                 break
-            qa = K.from_lerobot(robot.current_joints(), jm)  # 상자를 끼운 그 자세(실제 관절값)가 로봇 쪽 점
+            # 집게를 닫아 상자를 집게 가운데로 정렬한 뒤(손으로 끼운 오차 제거) 그 자세를 로봇 쪽 점으로 기록하고 다시 연다
+            print("   집게를 닫아 상자를 가운데로 맞춤...")
+            robot.set_gripper("closed")
+            time.sleep(1.2)
+            g = robot.gripper_reading()
+            qa = K.from_lerobot(robot.current_joints(), jm)
             pa = model.fk(qa)[:3, 3]
-            print("   팔을 8cm 물려 카메라가 상자만 보게 한 뒤 측정...")
-            robot.move_joints(K.to_lerobot(q_back, jm), 2.5)
+            robot.set_gripper("open")
+            time.sleep(0.8)
+            if g.get("open") is not None and g.get("closed") is not None and abs(g["open"] - g["closed"]) > 1e-6:
+                frac = (g["pos"] - g["closed"]) / (g["open"] - g["closed"])
+                if frac < 0.1:
+                    print(f"   ⚠ 집게가 끝까지 닫힘(빈손, {frac:.2f}) — 상자가 집게 사이에 없었음. 다시 끼우고 Enter")
+                    continue
+            print("   팔을 뒤로 뺀 뒤(home) 카메라가 상자만 보게 하고 측정... 상자는 그대로 둘 것")
+            robot.move_joints(K.to_lerobot(q_back, jm), 2.0)   # 먼저 조금 물러나 상자를 건드리지 않게
+            robot.wait_settled(3.0)
+            robot.move_to("home", 3.0)                           # 집게가 깊이 영상에서 상자와 붙지 않게 완전히 뺀다(10-09: 3~6cm로는 한 덩어리로 보임)
             robot.wait_settled(4.0)
             loc = sensor.locate()
             if not loc.get("found"):
                 print("   상자를 못 찾음:", loc.get("reason"), "— 상자가 깊이 화면 안에 있는지 보고 다시 끼운 뒤 Enter(s=건너뜀)")
-                robot.move_joints(K.to_lerobot(q, jm), 2.5); robot.wait_settled(4.0)
+                robot.move_joints(K.to_lerobot(q_back, jm), 3.0); robot.wait_settled(4.0)
+                robot.move_joints(K.to_lerobot(q, jm), 2.0); robot.wait_settled(4.0)
                 continue
             exp_h = (loc.get("box_mm") or [0, 0, None])[2]
             if exp_h and abs(float(loc["top_height_mm"]) - float(exp_h)) > 8:
                 print(f"   카메라 높이 {loc['top_height_mm']}mm가 상자 {exp_h}와 다름(손?). 다시 Enter")
-                robot.move_joints(K.to_lerobot(q, jm), 2.5); robot.wait_settled(4.0)
+                robot.move_joints(K.to_lerobot(q_back, jm), 3.0); robot.wait_settled(4.0)
+                robot.move_joints(K.to_lerobot(q, jm), 2.0); robot.wait_settled(4.0)
                 continue
             n = np.array(loc["table_normal_cam"])
             h = float(np.clip(frac * loc["top_height_mm"] + off, 5.0, loc["top_height_mm"] - 5.0))

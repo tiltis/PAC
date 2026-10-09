@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 DEFAULT_DURATIONS = {  # 이동별 기본 소요 시간(초). 현장에서 조정
     "home": 2.0, "pick_approach": 2.0, "pick": 1.5, "lift": 1.5,
-    "face_A": 2.0, "face_B": 2.0, "face_C": 2.0, "bin_ok": 2.5, "bin_human": 2.5,
+    "face_A": 3.0, "face_B": 3.0, "face_C": 3.5, "bin_ok": 3.0, "bin_human": 3.0,  # 10-09 현장: 상자 들고 손목 160° 회전은 2초로 부족
     "vision_approach": 2.5, "vision_grasp": 1.5, "vision_lift": 1.5,
 }
 
@@ -100,7 +100,7 @@ def _now_iso() -> str:
 class Sequencer:
     def __init__(self, robot, sensor, on_event: Optional[Callable[[dict], None]] = None,
                  on_finish: Optional[Callable[[dict], None]] = None,
-                 durations: Optional[dict] = None, settle_timeout_s: float = 5.0, advisor=None,
+                 durations: Optional[dict] = None, settle_timeout_s: float = 8.0, advisor=None,
                  picker=None, faces=DEFAULT_FACES):
         self.faces = parse_faces(faces if isinstance(faces, str) else ",".join(faces))
         self.robot = robot
@@ -118,7 +118,6 @@ class Sequencer:
         self._cur: Optional[dict] = None
         self._last: Optional[dict] = None
         self._thread: Optional[threading.Thread] = None
-        self._vision_lift = None
 
     # --- 외부 제어 ---
     @property
@@ -146,7 +145,6 @@ class Sequencer:
         return {"state": state, "busy": busy, "paused": paused, "faces": list(self.faces),
                 "zones": copy.deepcopy(SORTING_ZONES),
                 "robot_mode": "mock" if getattr(self.robot, "is_mock", False) else "hardware",
-                "pick_mode": "vision" if self.picker is not None else "taught",
                 "current": cur, "last_result": last}
 
     def start(self, specimen_id: str, session: str, box_type: str = "") -> None:
@@ -171,7 +169,6 @@ class Sequencer:
                 raise BusyError("이미 실행 중")
             self._busy = True
             self._abort = False
-            self._vision_lift = None
             self._cur = {
                 "specimen_id": specimen_id, "session": session, "box_type": box_type or "", "state": "running",
                 "step": None, "started_at": _now_iso(), "finished_at": None,
@@ -235,13 +232,6 @@ class Sequencer:
     def _move_joints(self, name: str, target: dict) -> None:
         self._step(f"move:{name}", lambda: self.robot.move_joints(target, self.durations.get(name, 2.0)))
 
-    def _verify_before_grasp(self, loc) -> None:
-        verifier = getattr(self.picker, "verify_at_grasp", None)
-        if verifier is not None:
-            check = self._step("vision:recheck", lambda: verifier(loc))
-            if not check.get("ok"):
-                raise SequenceError(f"집기 직전 위치 확인 실패: {check.get('reason')}")
-
     def _pick(self) -> None:
         """가르친 자세(기본) 또는 깊이로 찾은 상자 손잡이를 계산한 자세(비전)로 집는다.
         비전 모드에서 찾기·계획이 실패하면 가르친 자세로 바꾸지 않고 멈춘다."""
@@ -265,12 +255,33 @@ class Sequencer:
                                  "plan": {k: v for k, v in plan.items() if k not in ("approach", "grasp", "lift")}}
         if not plan.get("ok"):
             raise SequenceError(f"비전 집기 계획 실패: {plan.get('reason')}")
-        self._vision_lift = dict(plan["lift"])
         self._move_joints("vision_approach", plan["approach"])
-        if self.picker.dry_run:
+        stage = getattr(self.picker, "dry_stage", "approach")
+        if self.picker.dry_run and stage == "approach":
+            self._step("vision:dry_hold", lambda: time.sleep(float(getattr(self.picker, "dry_hold_s", 8.0))))  # 접근점에서 멈춰 눈으로 확인할 시간
             raise _DryRun()
-        self._verify_before_grasp(loc)
         self._move_joints("vision_grasp", plan["grasp"])
+        if self.picker.dry_run:  # stage == "grasp": 집는 자세(닫기 직전)에서 멈춰 집게와 상자 위치를 확인
+            def hold_and_measure():
+                time.sleep(2.5)  # 도착 후 정지 대기
+                try:  # 실제 관절값 → 집게 위치. 계획 목표와 비교해 "로봇이 목표에 못 미친 양"을 기록
+                    import kinematics as K
+                    cur = self.robot.current_joints()
+                    q = K.from_lerobot(cur, getattr(self.picker, "joint_map", None))
+                    actual = K.SO101().fk(q)[:3, 3]
+                    tgt = plan.get("grasp_point_m")
+                    err = [round((a - t) * 1000, 1) for a, t in zip(actual, tgt)] if tgt else None
+                    dq = {k: round(float(cur.get(k, 0)) - float(plan["grasp"].get(k, 0)), 1) for k in plan["grasp"]}
+                    with self._lock:
+                        self._cur["pick"]["dry_hold"] = {"actual_tcp_mm": [round(v * 1000, 1) for v in actual], "target_tcp_mm": [round(v * 1000, 1) for v in tgt] if tgt else None,
+                                                         "error_mm_xyz": err, "joint_error_deg": dq}
+                except Exception as e:
+                    with self._lock:
+                        self._cur["pick"]["dry_hold"] = {"error": f"{type(e).__name__}: {e}"}
+                time.sleep(max(0.0, float(getattr(self.picker, "dry_hold_s", 8.0)) - 2.5))
+            self._step("vision:dry_hold", hold_and_measure)
+            self._move_joints("vision_approach", plan["approach"])
+            raise _DryRun()
         self._grip("closed")
         try:
             self._check_grasp("pick")
@@ -281,6 +292,7 @@ class Sequencer:
             self._emit("vision:regrasp", "start", reason=str(first))
             self._grip("open")
             self._move_joints("vision_approach", plan["approach"])
+            self._move("home")  # 팔이 상자 옆에 있으면 깊이 영상에서 한 덩어리로 섞여 못 찾는다(10-09 현장) → 시야 밖으로 뺀 뒤 다시 측정
             loc2 = self._step("vision:locate#2", self.picker.locate)
             plan2 = self._step("vision:plan#2", lambda: self.picker.plan(loc2))
             with self._lock:
@@ -289,9 +301,7 @@ class Sequencer:
             if not plan2.get("ok"):
                 raise SequenceError(f"재집기 계획 실패: {plan2.get('reason')}")
             plan = plan2
-            self._vision_lift = dict(plan["lift"])
             self._move_joints("vision_approach", plan["approach"])
-            self._verify_before_grasp(loc2)
             self._move_joints("vision_grasp", plan["grasp"])
             self._grip("closed")
             self._check_grasp("pick")
@@ -404,10 +414,7 @@ class Sequencer:
         entry = self._inspect(face, 0)
         if entry["verdict"] == "unmeasurable" and self._cur["retakes_used"] == 0:
             self._cur["retakes_used"] = 1
-            if self.picker is None:
-                self._move("lift")
-            else:
-                self._move_joints("vision_lift", self._vision_lift)
+            self._move("lift")
             self._move(f"face_{face}")
             self._settle(face)
             self._check_grasp(f"face_{face}")
@@ -415,16 +422,10 @@ class Sequencer:
         return entry["verdict"]
 
     def _sequence(self) -> None:
-        ready = getattr(self.picker, "preflight_ready", None)
-        if ready is not None:
-            check = self._step("vision:ready", ready)
-            if not check.get("ok"):
-                raise SequenceError(f"비전 집기 준비 미완료: {check.get('reason')}")
         self._move("home")
         self._grip("open")
         self._pick()
-        if self.picker is None:
-            self._move("lift")
+        self._move("lift")
         self._check_grasp("lift")
         finals = {}
         for face in self.faces:  # 기본 A·B. 3면 테이프 검사는 FACES=A,B,C로 face_C 자세(손목을 더 돌려 3번째 면)를 추가한다

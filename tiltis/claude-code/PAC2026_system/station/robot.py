@@ -171,7 +171,7 @@ class So101Robot(RobotBase):
     HZ = 30.0
 
     def __init__(self, port: str, robot_id: str = "so101_follower",
-                 poses_path: Path = DEFAULT_POSES, tolerance: float = 2.0):
+                 poses_path: Path = DEFAULT_POSES, tolerance: float = 5.0):  # 10-09 현장: 상자를 들고 뻗으면 2°로는 안정화 판정이 안 됨(P게인 낮음)
         self.port = port
         self.robot_id = robot_id
         self.poses_path = Path(poses_path)

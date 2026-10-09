@@ -63,6 +63,7 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
         if he is None:
             raise RuntimeError("PICK_MODE=vision인데 hand-eye 보정(station/calib/handeye.json)이 없음. teach.py --handeye 먼저")
         picker = VisionPicker(sensor, he, dry_run=os.environ.get("PICK_DRY_RUN", "0") == "1")
+        picker.dry_stage = os.environ.get("PICK_DRY_STAGE", "approach")  # approach | grasp(닫기 직전에서 멈춤)
     elif pick_mode != "taught":
         raise RuntimeError(f"알 수 없는 PICK_MODE: {pick_mode} (taught 또는 vision)")
     seq = Sequencer(robot, sensor, on_finish=store.save_run, durations=durations,

@@ -31,12 +31,19 @@ DEFAULTS = {
     "grasp_depth_max_mm": 35.0,
     "approach_mm": 25.0,
     "lift_mm": 25.0,
-    # 옆집기: 모델의 후보 반경이며 실측 workspace는 별도 확인한다.
-    # 실제 개구 폭·상자 회전/정렬은 실기 검증이 필요하다.
+    # 옆집기(grasp_mode "side"): 수평으로 접근해 상자 양 옆면을 집는다. SO-101은 팔을 뻗은 38~46cm에서만 수평 접근이 풀린다(10-09 IK 계산,
+    # 가르친 pick_brown도 41cm). 집는 높이 = 상자 높이 × side_height_frac + side_tcp_offset_mm. 집게를 상자 대각선보다 넓게(≥105mm) 열면
+    # 상자가 어떤 방향으로 놓여도 닫히면서 정렬된다.
     "grasp_mode": "top",            # "top": 위에서 수직(손잡이용) / "side": 옆에서 수평
     "side_height_frac": 0.5,
     "side_tcp_offset_mm": 0.0,
     "side_approach_mm": 50.0,
+    "side_approach_up_mm": 40.0,    # 접근점은 뒤 + 위(최소 이 높이, 상자 윗면+15mm 이상)로 잡아 손가락 끝이 상자를 밀지 않게(10-09 현장: 같은 높이 접근은 밀어냄)
+    "side_lateral_offset_mm": 0.0,  # 닫힘 방향(+ = 로봇 왼쪽 = 정면 카메라 기준 오른쪽)으로 집는 점을 옮기는 보정
+    "side_forward_offset_mm": 0.0,  # 접근 방향(+ = 로봇에서 멀어짐)으로 집는 점을 옮기는 보정
+    "side_use_absolute_z": False,   # True: 집는 높이를 로봇 바닥 기준 절대값으로(카메라 매핑의 높이 치우침 무시)
+    "side_jaw_offset_frame_m": None,  # [x, y, z] 손가락 끝→턱 가운데(frame 좌표). SO-101 URDF: [-0.0281, 0.019, -0.0347]
+    "side_min_tip_z_mm": 10.0,        # 손가락 끝 최소 높이(책상 기준). 가르친 pick_brown의 끝 높이 9mm 참고
     "side_lift_mm": 100.0,
     "side_reach_r_m": [0.37, 0.47],
     "box_types_by_height_mm": {"white": 90, "brown": 45},  # locate가 잰 높이로 상자 종류 자동 선택(±15mm)
@@ -52,34 +59,6 @@ def load_config():
         cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
     return cfg
 
-
-def camera_grasp_point(loc, cfg):
-    """Shared camera-mm tool point. Offset: side height above table / top depth below top."""
-    n = np.asarray(loc["table_normal_cam"], float)
-    if n.shape != (3,) or not np.isfinite(n).all() or np.linalg.norm(n) < 1e-6:
-        raise ValueError("invalid table normal")
-    n = n / np.linalg.norm(n)
-    if cfg.get("grasp_mode") == "side":
-        height = float(loc["top_height_mm"])
-        if not np.isfinite(height) or height <= 10:
-            raise ValueError("invalid side grasp height")
-        base = loc.get("box_center_on_table_cam_mm")
-        if base is None:
-            base = np.asarray(loc["top_center_cam_mm"], float) - n * height
-        base = np.asarray(base, float)
-        if base.shape != (3,) or not np.isfinite(base).all():
-            raise ValueError("invalid box table center")
-        h = float(np.clip(cfg["side_height_frac"] * height + cfg["side_tcp_offset_mm"], 5, height - 5))
-        if not np.isfinite(h):
-            raise ValueError("invalid side grasp offset")
-        return base + n * h, h
-    depth_mm = cfg.get("grasp_depth_mm")
-    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
-        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
-                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
-    if depth_mm is None:
-        depth_mm = cfg["tab_height_mm"] / 2.0
-    return np.asarray(loc["top_center_cam_mm"], float) - n * depth_mm, float(depth_mm)
 
 def plan(loc, he, robot=None, cfg=None, joint_map=None):
     """성공: {"ok": True, "approach"/"grasp"/"lift": LeRobot 관절 dict, ...}. 실패: {"ok": False, "reason": ...}"""
@@ -101,8 +80,14 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
     tilt = np.degrees(np.arccos(np.clip(n[2], -1, 1)))
     if tilt > cfg["max_normal_tilt_deg"]:
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
-    grasp_cam, depth_mm = camera_grasp_point(loc, cfg)
-    grasp_p = handeye.point(he, grasp_cam)
+    top = handeye.point(he, loc["top_center_cam_mm"])
+    depth_mm = cfg.get("grasp_depth_mm")
+    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
+        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
+                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
+    if depth_mm is None:
+        depth_mm = cfg["tab_height_mm"] / 2.0
+    grasp_p = top - n * depth_mm / 1000.0
     approach_p = grasp_p + n * cfg["approach_mm"] / 1000.0
     lift_p = grasp_p + n * cfg["lift_mm"] / 1000.0
     r = float(np.hypot(grasp_p[0], grasp_p[1]))
@@ -131,45 +116,26 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
             "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs, "handeye_rms_mm": he.get("rms_mm")}
 
 
-def side_box_alignment(loc, he, grasp_p):
-    """Camera 3D box edges -> base approach/jaw axes. Image angles are not accepted."""
-    normal = np.asarray(loc["table_normal_cam"], float)
-    if normal.shape != (3,) or not np.isfinite(normal).all() or np.linalg.norm(normal) < 1e-6:
-        raise ValueError("invalid camera table normal")
-    normal /= np.linalg.norm(normal)
-    axes = []
-    for key in ("long_axis_cam", "short_axis_cam"):
-        axis = np.asarray(loc[key], float)
-        if axis.shape != (3,) or not np.isfinite(axis).all() or np.linalg.norm(axis) < 1e-6:
-            raise ValueError("invalid camera box axis")
-        if abs(np.dot(axis / np.linalg.norm(axis), normal)) > .1:
-            raise ValueError("box edge is not on the table plane")
-        axis = handeye.vector(he, axis / np.linalg.norm(axis))
-        axis[2] = 0  # side pick uses a horizontal tool approach; table tilt is checked by the planner
-        if np.linalg.norm(axis) < 1e-6:
-            raise ValueError("box axis has no horizontal direction")
-        axes.append(axis / np.linalg.norm(axis))
-    if abs(np.dot(*axes)) > 0.1:
-        raise ValueError("box edges are not orthogonal")
-    radial = np.asarray([grasp_p[0], grasp_p[1], 0.0], float)
-    if not np.isfinite(radial).all() or np.linalg.norm(radial) < 1e-6:
-        raise ValueError("invalid base grasp point")
-    radial /= np.linalg.norm(radial)
-    # Choose the box face closest to the robot; retain its edge-aligned approach and perpendicular jaw axis.
-    approach_index = int(np.argmax([abs(np.dot(a, radial)) for a in axes]))
-    approach, jaw = axes[approach_index].copy(), axes[1 - approach_index].copy()
-    if np.dot(approach, radial) < 0:
-        approach = -approach
-    # Jaws are an undirected line (180 degree symmetry). Keep a consistent sign
-    # so PCA sign flips do not change yaw or the IK starting orientation.
-    if np.dot(jaw, np.cross([0, 0, 1.0], approach)) < 0:
-        jaw = -jaw
-    yaw = float(np.arctan2(jaw[1], jaw[0]))
-    return approach, jaw, yaw, "long" if approach_index == 0 else "short"
+def _ik_near(robot, p, down, yaw, q_ref, tries=6, noise_deg=8.0, rng=0):
+    """q_ref(기준 자세)에서 가까운 역기구학 해를 고른다. 첫 시드가 다른 가지(팔꿈치 반대)로 빠지면 관절 변화가 수십 도가 되므로
+    기준 자세 주변 시드를 여러 개 넣고 관절 변화가 가장 작은 해를 돌려준다."""
+    g = np.random.default_rng(rng)
+    best = None
+    for k in range(tries):
+        q0 = q_ref if k == 0 else q_ref + np.radians(g.normal(0, noise_deg, len(q_ref)))
+        q = robot.ik(p, down=down, yaw=yaw, q0=q0)
+        if q is None:
+            continue
+        jump = float(np.degrees(np.abs(q - q_ref)).max())
+        if best is None or jump < best[1]:
+            best = (q, jump)
+        if jump < 20:
+            break
+    return None if best is None else best[0]
 
 
 def plan_side(loc, he, robot, cfg, joint_map=None):
-    """Side pick with approach/jaw directions aligned to measured 3D box edges."""
+    """옆집기: 상자 중심(책상 위) + 법선×집는 높이 = 집는 점. 접근은 로봇 쪽에서 수평으로, 닫힘 방향은 접근과 직각(수평)."""
     if loc.get("top_height_mm") is None or (loc.get("box_center_on_table_cam_mm") is None and loc.get("top_center_cam_mm") is None):
         return {"ok": False, "reason": "옆집기에는 상자 중심·높이(locate 결과)가 필요"}
     if loc.get("box_center_on_table_cam_mm") is None:  # top 모드: 윗면 중심에서 법선×높이만큼 내려 책상 위 중심
@@ -181,41 +147,94 @@ def plan_side(loc, he, robot, cfg, joint_map=None):
     tilt = np.degrees(np.arccos(np.clip(n[2], -1, 1)))
     if tilt > cfg["max_normal_tilt_deg"]:
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
-    try:
-        grasp_cam, h_mm = camera_grasp_point(loc, cfg)
-    except (KeyError, TypeError, ValueError) as e:
-        return {"ok": False, "reason": f"옆집기 좌표 오류: {e}"}
-    grasp_p = handeye.point(he, grasp_cam)
+    h_box = float(loc["top_height_mm"])
+    # 집는 높이(상자 중심 기준). side_tcp_offset_mm는 음수 가능: 좌표 맞추기 때 상자를 든 채 닫혔으면 매핑이 높게 묶이므로 내린다(10-09 현장 -20)
+    h_mm = float(np.clip(cfg["side_height_frac"] * h_box + cfg["side_tcp_offset_mm"], -45.0, max(5.0, h_box - 5.0)))
+    base_pt = handeye.point(he, loc["box_center_on_table_cam_mm"])
+    grasp_p = base_pt + n * h_mm / 1000.0
+    if cfg.get("side_forward_offset_mm"):  # 접근 방향(로봇에서 멀어지는 쪽)으로 집는 점을 옮기는 보정: 집게가 상자 뒤쪽에만 걸치면 +
+        hz = np.array([grasp_p[0], grasp_p[1], 0.0]); hz /= max(np.linalg.norm(hz), 1e-9)
+        grasp_p = grasp_p + hz * cfg["side_forward_offset_mm"] / 1000.0
     horiz = np.array([grasp_p[0], grasp_p[1], 0.0])
     r = float(np.linalg.norm(horiz))
+    if cfg.get("side_lateral_offset_mm"):  # 좌우 보정: 닫힘 방향(접근과 직각, 수평)으로
+        lat = np.array([-horiz[1], horiz[0], 0.0]) / max(r, 1e-9)
+        grasp_p = grasp_p + lat * cfg["side_lateral_offset_mm"] / 1000.0
+        horiz = np.array([grasp_p[0], grasp_p[1], 0.0])
+        r = float(np.linalg.norm(horiz))
     lo, hi = cfg["side_reach_r_m"]
     if not lo <= r <= hi:
         return {"ok": False, "reason": f"로봇에서 수평 거리 {r * 1000:.0f}mm: 옆집기 허용 {lo * 1000:.0f}~{hi * 1000:.0f}mm 밖(상자를 더 {'멀리' if r < lo else '가까이'})"}
-    try:
-        approach_axis, jaw_axis, yaw, face_axis = side_box_alignment(loc, he, grasp_p)
-    except (KeyError, TypeError, ValueError) as e:
-        return {"ok": False, "reason": f"상자 방향 확인 실패: {e}"}
-    approach_p = grasp_p - approach_axis * cfg["side_approach_mm"] / 1000.0
+    radial = horiz / r
+    yaw = float(np.arctan2(radial[1], radial[0]) + np.pi / 2)  # 닫힘 방향 = 접근과 직각(수평). 상자 방향은 집게가 닫히며 맞춘다
+    if cfg.get("side_use_absolute_z", False):
+        # 좌표 맞추기 때 상자를 든 채 닫혀 매핑의 높이가 틀어질 수 있으므로, 높이는 로봇 바닥(=책상) 기준 절대값으로 둔다(10-09 현장)
+        grasp_p = np.array([grasp_p[0], grasp_p[1], h_mm / 1000.0])
+    jaw = cfg.get("side_jaw_offset_frame_m")
+    if jaw:  # 도구 기준점(gripper_frame_link, 손가락 끝)에서 턱 가운데까지(frame 좌표, URDF). 턱 가운데가 상자 중심에 오도록 끝점을 옮긴다
+        # 5축 팔은 접근축이 로봇 중심을 지나야 수평 자세가 풀리므로, 끝점을 옮긴 뒤 그 끝점 기준으로 접근 방향을 다시 잡기를 반복한다
+        box_c = grasp_p.copy()
+        jaw_v = np.asarray(jaw, float)
+        for _ in range(8):
+            xw = np.array([np.cos(yaw), np.sin(yaw), 0.0]); zw = radial; yw = np.cross(zw, xw)
+            Rf = np.column_stack([xw, yw, zw])
+            grasp_p = box_c - Rf @ jaw_v
+            hz = np.array([grasp_p[0], grasp_p[1], 0.0]); rr = float(np.linalg.norm(hz))
+            new_radial = hz / max(rr, 1e-9)
+            new_yaw = float(np.arctan2(new_radial[1], new_radial[0]) + np.pi / 2)
+            if np.linalg.norm(new_radial - radial) < 1e-4:
+                radial, yaw = new_radial, new_yaw
+                break
+            radial, yaw = new_radial, new_yaw
+        min_tip = float(cfg.get("side_min_tip_z_mm", 10.0)) / 1000.0  # 손가락 끝이 책상에 닿지 않게. 낮은 상자는 그만큼 위쪽을 잡는다
+        if grasp_p[2] < min_tip:
+            lift_by = min_tip - grasp_p[2]
+            if (h_mm / 1000.0 + lift_by) > (h_box - 8.0) / 1000.0:
+                return {"ok": False, "reason": f"상자 높이 {h_box:.0f}mm가 낮아 턱이 상자 안에 들어오지 못함(끝 최소 높이 {min_tip*1000:.0f}mm)"}
+            grasp_p = grasp_p + np.array([0.0, 0.0, lift_by])
+            h_mm = h_mm + lift_by * 1000.0
+        horiz = np.array([grasp_p[0], grasp_p[1], 0.0]); r = float(np.linalg.norm(horiz))
+        if not lo <= r <= hi:
+            return {"ok": False, "reason": f"턱 가운데 보정 후 손가락 끝 거리 {r * 1000:.0f}mm: 허용 {lo * 1000:.0f}~{hi * 1000:.0f}mm 밖(상자를 더 {'멀리' if r < lo else '가까이'})"}
     lift_p = grasp_p + n * cfg["side_lift_mm"] / 1000.0
-    qs, seed = {}, None
-    for name, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p)):
-        q = robot.ik(p, down=approach_axis, yaw=yaw, q0=seed)
-        if q is None:
-            return {"ok": False, "reason": f"{name} 위치({p[0]*1000:.0f}, {p[1]*1000:.0f}, {p[2]*1000:.0f})mm 역기구학 해 없음(옆집기)"}
-        qs[name] = q
-        seed = q
-    jump = np.degrees(np.abs(qs["grasp"] - qs["approach"])).max()
-    if jump > cfg["max_joint_jump_deg"]:
-        return {"ok": False, "reason": f"접근→집기 관절 변화 {jump:.0f}°가 너무 큼(자세가 뒤집힌 해)"}
-    errs = {k: [round(v, 2) for v in robot.error(qs[k], p, approach_axis, jaw_axis)]
+    qs = {}
+    q = robot.ik(grasp_p, down=radial, yaw=yaw)
+    if q is None:
+        return {"ok": False, "reason": f"grasp 위치({grasp_p[0]*1000:.0f}, {grasp_p[1]*1000:.0f}, {grasp_p[2]*1000:.0f})mm 역기구학 해 없음(옆집기, 상자를 36~41cm로)"}
+    qs["grasp"] = q
+    # 접근점: 로봇 쪽으로 물러난 점. 상자가 가까우면(≈37cm) 5cm 뒤는 팔이 못 접히므로 4→3→2cm로 줄여 본다(10-09 현장)
+    approach_p, used = None, None
+    up_cfg = float(cfg.get("side_approach_up_mm", 40.0))
+    # up_cfg > 0: 뒤+위에서 대각선으로 내려오며 감싼다(손가락이 상자 윗면 위를 지나게). up_cfg <= 0: 같은 높이에서 뒤에서 앞으로 밀어 넣는다(10-09 현장 선택)
+    up_mm = max(up_cfg, h_box - h_mm + 15.0) if up_cfg > 0 else 0.0
+    for back_mm in (cfg["side_approach_mm"], 40.0, 30.0, 20.0):
+        for up in ((up_mm, up_mm + 20.0) if up_mm > 0 else (0.0, 10.0)):
+            cand = grasp_p - radial * back_mm / 1000.0 + n * up / 1000.0
+            qa = _ik_near(robot, cand, radial, yaw, q)
+            if qa is not None:
+                approach_p, used, qs["approach"] = cand, (back_mm, up), qa
+                break
+        if approach_p is not None:
+            break
+    if approach_p is None:
+        return {"ok": False, "reason": f"접근 위치 역기구학 해 없음(옆집기, 상자 {r*1000:.0f}mm: 더 멀리 40~45cm에 둘 것)"}
+    ql = _ik_near(robot, lift_p, radial, yaw, q)
+    if ql is None:
+        return {"ok": False, "reason": f"lift 위치({lift_p[0]*1000:.0f}, {lift_p[1]*1000:.0f}, {lift_p[2]*1000:.0f})mm 역기구학 해 없음(옆집기)"}
+    qs["lift"] = ql
+    dq = np.degrees(np.abs(qs["grasp"] - qs["approach"]))
+    # 팔을 거의 다 뻗은 43~46cm에서는 뒤·위 접근점으로 가려면 어깨·팔꿈치가 수십 도 움직이는 게 정상(10-09 계산). 뒤집힌 해는 손목 회전으로 가린다
+    if dq[4] > cfg.get("max_roll_jump_deg", 20.0):
+        return {"ok": False, "reason": f"접근→집기 손목 회전 변화 {dq[4]:.0f}°(집게가 뒤집힌 해)"}
+    if dq[:4].max() > cfg.get("side_max_joint_jump_deg", 90.0):
+        return {"ok": False, "reason": f"접근→집기 관절 변화 {dq[:4].max():.0f}°가 너무 큼"}
+    errs = {k: [round(v, 2) for v in robot.error(qs[k], p, radial, np.array([np.cos(yaw), np.sin(yaw), 0]))]
             for k, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p))}
     return {"ok": True, "grasp_mode": "side", "approach": K.to_lerobot(qs["approach"], joint_map), "grasp": K.to_lerobot(qs["grasp"], joint_map),
             "lift": K.to_lerobot(qs["lift"], joint_map),
             "grasp_point_m": grasp_p.round(4).tolist(), "grasp_height_mm": round(h_mm, 1), "radius_mm": round(r * 1000, 1),
-            "yaw_deg": round(np.degrees(yaw), 1), "orientation_source": "depth_camera_box_axes",
-            "approach_axis_base": approach_axis.round(6).tolist(), "jaw_axis_base": jaw_axis.round(6).tolist(),
-            "approach_box_axis": face_axis,
-            "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs,
+            "approach_back_mm": used,
+            "yaw_deg": round(np.degrees(yaw), 1), "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs,
             "handeye_rms_mm": he.get("rms_mm")}
 
 

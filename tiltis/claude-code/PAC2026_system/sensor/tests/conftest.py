@@ -14,3 +14,8 @@ def _isolate_site_calib(monkeypatch, tmp_path):
     import rules
     monkeypatch.setattr(rules, "PATH", tmp_path / "no_rules.json")
     monkeypatch.setattr(objects, "CONFIG_PATH", tmp_path / "no_object_config.json")
+    try:  # 현장 timing_policy.json도 테스트에서는 보지 않는다
+        import server
+        monkeypatch.setattr(server, "CALIB_DIR", tmp_path)
+    except Exception:
+        pass

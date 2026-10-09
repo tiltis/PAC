@@ -73,6 +73,15 @@ def tape_blob_areas(vis, roi, color=None, merge_px=9):
     return sorted((int(st[i, cv2.CC_STAT_AREA]) for i in range(1, n)), reverse=True)
 
 
+def _tape_count_for(cfg, face):
+    """면별 개수 규칙: tape_counts(목록) 우선, 없으면 예전 단일 tape_count."""
+    for t in cfg.get("tape_counts") or []:
+        if t.get("face") == face:
+            return t
+    tc = cfg.get("tape_count")
+    return tc if tc and tc.get("face") == face else None
+
+
 def tape_color(cfg):
     if "tape_color" in cfg:
         return cfg["tape_color"]
@@ -93,8 +102,8 @@ def measure(face, vis, lwir_mean, cfg):
     for t in cfg.get("tapes", []):
         if t["face"] == face:
             out[f"tape_{t['id']}_fill"] = round(tape_fill(vis, t["roi_rgb"], color), 4)
-    tc = cfg.get("tape_count")
-    if tc and tc.get("face") == face:  # 방향 무관 개수 세기: 큰 덩어리 면적 목록(기준값 맞추기와 판정에 함께 쓴다)
+    tc = _tape_count_for(cfg, face)
+    if tc:  # 방향 무관 개수 세기: 큰 덩어리 면적 목록(기준값 맞추기와 판정에 함께 쓴다)
         out["tape_blob_areas"] = tape_blob_areas(vis, tc.get("roi_rgb"), color, tc.get("merge_px", 9))[:8]
     c = cfg.get("coolant")
     if c and c.get("face") == face:
@@ -129,8 +138,8 @@ def judge_face(face, vis, lwir_mean, cfg):
         f["tape_present_count"] = sum(1 for t in tapes_here if f[f"tape_{t['id']}_present"] is True)
         f["tape_missing_count"] = len(missing_ids)
         f["tape_missing_ids"] = missing_ids
-    tc = cfg.get("tape_count")
-    if tc and tc.get("face") == face:  # 상자 방향이 랜덤일 때: 영역 고정 대신 테이프 덩어리 개수 ≥ 기대 개수
+    tc = _tape_count_for(cfg, face)
+    if tc:  # 상자 방향이 랜덤일 때: 영역 고정 대신 테이프 덩어리 개수 ≥ 기대 개수
         expected, min_area = int(tc.get("expected", 3)), tc.get("min_area_px")
         areas = m.get("tape_blob_areas", [])
         if min_area is None:
@@ -138,6 +147,14 @@ def judge_face(face, vis, lwir_mean, cfg):
             uncertain.append("tape_threshold_missing_count")
         else:
             count = sum(1 for a in areas if a >= min_area)
+            total = sum(a for a in areas if a >= min_area)
+            f["tape_total_area_px"] = total
+            gold_total = tc.get("golden_total_area_px")
+            frac_cfg = tc.get("min_total_area_frac")
+            if frac_cfg and gold_total and count < expected and total >= frac_cfg * gold_total:  # 기본은 끔(개수만 본다)
+                # 조각 둘이 붙어 한 덩어리로 보이는 경우(상자 각도): 총면적이 기준에 가까우면 다 있는 것으로 본다. 하나 빠지면 면적이 1/3 줄어 걸린다
+                f["tape_merged_blobs"] = True
+                count = expected
         f["tape_expected"] = expected
         f["tape_present_count"] = None if count is None else min(count, expected)
         f["tape_missing_count"] = None if count is None else max(0, expected - count)

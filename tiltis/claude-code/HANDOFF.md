@@ -107,3 +107,15 @@ c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재�
 공유 변경 이유/재현: plan_side가 상자 회전을 무시하고 중심 radial 방향으로만 집었다. `station/grasp.py`에서 두 3D 상자 축을 hand-eye 회전하여 접근·집게 축을 정렬하고 도달 불가 자세는 거부한다. 기존 station 1개/guard 2개 테스트가 위치가 바뀌어도 고정 상자 방향으로 항상 성공한다고 가정해 실패했으며, 도달 가능한 변 정렬 장면과 회전/도달 불가 거부를 분리해 수정했다. `sensor/locate.py`에는 선택적 object_mask만 연결해 기존 책상 평면·검사 코드를 재사용했다. 원래의 빈 집기 재시도/3면 검사/분류 기능은 유지했다.
 
 검증: RGB/깊이43, guard58, sensor 전체121, station 전체115 pass. 마지막 축 검증 후 station vision_pick 부분16 pass. 가상 SAM/depth→공유 guard→IK/FK 통합, CLI 저장, 노트북 AST/출력 없음/실행 GPU 결과 보관도 확인. 자세한 계약·명령·제한은 ../codex/rgb_box/README.md 및 ../codex/HANDOFF.md. 런타임 C:/PAC2026_system 교체/서버 재시작/로봇 호출 없음. 최신 handeye 파일은 18:28:38 n5/RMS8.62/max11.7mm(읽기만 수행); 기존 15.91mm 기록은 과거 상태다. TCP/FK·실측 작업 범위·RGB-depth 정합·개구 폭/충돌·실제 속도/stop과 사용자 승인 전 자동 집기 완료로 보고하지 말 것.
+
+### 추가: 2026-10-09 현장(경북대) 실기 — 비전 옆집기로 전 과정 완주
+- 로봇: COM8(CH343), lerobot-calibrate 완료(전 관절 190~227°). 자세 teach.py --guided(안내 모드, w=토크 고정/f=풀기), 상자 종류별 자세 접미사 _white/_brown.
+- 좌표 맞추기: teach.py --handeye-auto — 로봇이 5곳으로 가서 집게를 벌리고, 사용자는 상자만 끼움; 집게를 닫아 상자를 가운데로 정렬한 뒤 FK 기록, home으로 뺀 뒤 깊이로 측정. RMS 8.6mm(5점).
+- 깊이: 현장은 카메라가 위에서 내려다봐 locate_mode top(locate_box_top_any: 후보 높이·윗면 크기로 선택), pick_roi 전체, near_far 200~700.
+- 옆집기(grasp_mode side) 핵심 수정: 도구 기준점(gripper_frame_link)은 손가락 끝이고 턱 가운데는 끝에서 (−28, +19, −35)mm(URDF) → 턱 가운데를 상자 중심에 맞추고 접근축이 로봇 중심을 지나도록 반복 계산. 높이는 책상 기준 절대값(끝 최소 10mm). 접근은 같은 높이에서 뒤→앞(2~5cm, 가까우면 자동 축소). 상자는 로봇 중심에서 36~41cm. 안정화 허용 5°, 면 이동 3~3.5초, 대기 8초.
+- 놓치면 집게 열고 home으로 뺀 뒤 다시 찾아 한 번 더 집기. 상자 종류는 잰 높이로 자동.
+- 결과: 갈색 상자 집기(holding 0.50) → 들기 → 면 A/B/C(손목 꺾기: 앞면·윗면·아랫면) → 빨강 영역에 놓기 → home, 전 과정 완주 2회.
+- 테이프: 영역 고정 대신 면별 초록 덩어리 개수(tape_counts). rules_calib.py count-golden으로 정상 상자 1회 촬영에서 면 A 2개·면 B 3개 기준 설정(면 C 검사 없음). 테이프 2개 상자 → 면 B 2/3 → 빨강 확인. 면적 보정은 끔(1개 빠져도 면적 85% 남아 위험).
+- 타이밍 정책: 현장 촬영 5장으로 생성. SINGLE_SPECIMEN=1.
+- 현장 보정 파일(poses.json, handeye.json, rules.json, timing_policy.json, grasp/object config)은 Git에 올리지 않고 OneDrive/PAC2026_노트북용/현장보정_20261009/에 백업.
+- 남은 일: 테이프 3개 상자 → 파랑 확인, 흰 상자 집기 확인, 냉매(열화상) 기준(roi-coolant + fit).

@@ -134,6 +134,40 @@ def cmd_roi_tape_count(a):
     print(f"면 {a.face} 개수 영역 저장, 지금 보이는 덩어리 면적(큰 순): {areas[:6]}. 이제 fit으로 최소 면적 기준을 맞춘다")
 
 
+def cmd_count_golden(a):
+    """정상(테이프 다 붙은) 상자를 로봇이 든 채 찍은 면 A/B/C 촬영에서, 면마다 보이는 초록 덩어리 수를 기대 개수로,
+    그 덩어리들 중 가장 작은 면적의 절반을 최소 면적으로 잡는다. 현장에서 있음/없음 샘플을 모을 시간이 없을 때의 빠른 설정이며
+    source_id에 'golden'이 남는다. 이후 테이프를 뗀 상자로 eval해 누락이 잡히는지 확인할 것."""
+    dirs = [Path(d) for d in a.captures]
+    cfg = cfg_load()
+    color = rules.tape_color(cfg)
+    counts = []
+    for d in dirs:
+        vis, _, face = load_capture(d)
+        areas = rules.tape_blob_areas(vis, None, color)
+        big = [x for x in areas if x >= a.min_area_floor]
+        if not big:
+            print(f"  {d.name}: 면 {face} 초록 덩어리 없음 → 이 면은 검사 항목 없음")
+            continue
+        n = len(big) if a.expected <= 0 else min(a.expected, len(big))
+        used = big[:n]
+        entry = {"face": face, "roi_rgb": None, "expected": n, "min_area_px": int(min(used) * 0.5), "merge_px": 9,
+                 "golden_areas": used, "golden_total_area_px": int(sum(used)), "min_total_area_frac": None}  # 면적 보정은 끈다(10-09: 테이프 1개 빠져도 면적 85% 남아 통과시킴)
+        counts.append(entry)
+        print(f"  {d.name}: 면 {face} 덩어리 {areas[:6]} → 기대 {n}개, 최소 면적 {entry['min_area_px']}px")
+    if not counts:
+        raise SystemExit("어느 면에서도 초록 덩어리를 못 찾음")
+    cfg["tape_counts"] = counts
+    cfg.pop("tape_count", None)
+    cfg["tapes"] = []  # 영역 고정 방식은 끈다(상자 방향 랜덤)
+    cfg["faces_without_checks_ok"] = [f for f in ("A", "B", "C") if f not in {c["face"] for c in counts}]
+    cfg.update(validated=True, source_id=f"golden:{a.source_id}", fitted=dt.datetime.now().isoformat(timespec="seconds"),
+               fit_report={"mode": "golden-run", "counts": counts})
+    cfg_save(cfg)
+    print("validated: True (golden-run). 면별 기대 개수:", {c["face"]: c["expected"] for c in counts},
+          "| 검사 없는 면(통과):", cfg["faces_without_checks_ok"])
+
+
 def cmd_roi_coolant(a):
     _, lw, _ = load_capture(a.capture)
     if a.rois:
@@ -261,11 +295,16 @@ def main():
             s.add_argument("--" + k, nargs="*", default=[])
         if name == "fit":
             s.add_argument("--source-id", required=True)
+    s = sub.add_parser("count-golden")
+    s.add_argument("--captures", nargs="+", required=True, help="정상 상자 1회 실행의 면 A/B/C 촬영 폴더들")
+    s.add_argument("--expected", type=int, default=0, help="면당 기대 개수 상한(0=보이는 대로)")
+    s.add_argument("--min-area-floor", type=int, default=400, help="이보다 작은 초록은 잡음으로 무시(px)")
+    s.add_argument("--source-id", required=True)
     s = sub.add_parser("timing")
     s.add_argument("--session", required=True)
     a = ap.parse_args()
-    {"roi-tape": cmd_roi_tape, "roi-tape-count": cmd_roi_tape_count, "roi-coolant": cmd_roi_coolant, "fit": cmd_fit,
-     "eval": cmd_eval, "timing": cmd_timing}[a.cmd](a)
+    {"roi-tape": cmd_roi_tape, "roi-tape-count": cmd_roi_tape_count, "count-golden": cmd_count_golden, "roi-coolant": cmd_roi_coolant,
+     "fit": cmd_fit, "eval": cmd_eval, "timing": cmd_timing}[a.cmd](a)
 
 
 if __name__ == "__main__":

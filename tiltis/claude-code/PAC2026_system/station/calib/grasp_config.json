@@ -18,10 +18,23 @@
   "side_lift_mm": 100.0,
   "side_reach_r_m": [
     0.37,
-    0.47
+    0.49
   ],
   "box_types_by_height_mm": {
     "white": 90,
     "brown": 45
-  }
+  },
+  "side_approach_up_mm": 0.0,
+  "side_lateral_offset_mm": 0.0,
+  "side_max_joint_jump_deg": 90.0,
+  "max_roll_jump_deg": 20.0,
+  "side_forward_offset_mm": 0.0,
+  "_note_1009": "턱 가운데 = 상자 중심(URDF 오프셋), 높이 절대값(책상=0), 같은 높이에서 뒤→앞 접근. 상자는 로봇 중심에서 36~41cm(끝점이 +3cm라 그 이상이면 IK 불가)",
+  "side_use_absolute_z": true,
+  "side_jaw_offset_frame_m": [
+    -0.0281,
+    0.019,
+    -0.0347
+  ],
+  "side_min_tip_z_mm": 10.0
 }

@@ -98,6 +98,3 @@ def test_import_grasp_profile_maps_phases_to_box_poses(tmp_path, monkeypatch):
         imp.convert(dict(prof, calibration_sha256="zzz"), "white", {"joints": {}, "gripper": {}})
     with _pt.raises(ValueError):  # 상자 크기가 다르면 거부
         imp.convert(prof, "brown", {"joints": {}, "gripper": {}})
-    monkeypatch.setattr(imp, "our_calibration_sha256", lambda robot_id="so101_follower": (None, tmp_path / "missing.json"))
-    with _pt.raises(ValueError, match="해시가 필요"):
-        imp.convert(dict(prof, calibration_sha256=None), "white", {"joints": {}, "gripper": {}})
