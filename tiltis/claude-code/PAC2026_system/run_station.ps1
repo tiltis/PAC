@@ -1,7 +1,8 @@
 ﻿# 스테이션 실행(포트 8000). 실행: run_station.bat [-MockSensor] [-SensorUrl http://IP:8001] [-Robot so101 -RobotPort COM5]
 param([string]$SensorUrl = 'http://127.0.0.1:8001', [string]$Robot = 'mock', [string]$RobotPort = '',
       [switch]$MockSensor, [string]$MockScenario = 'all_ok', [string]$AdvisorUrl = '', [int]$Port = 8000,
-      [ValidateSet('taught', 'vision')][string]$PickMode = 'taught', [switch]$DryRun, [switch]$SingleSpecimen)
+      [ValidateSet('taught', 'vision')][string]$PickMode = 'taught', [switch]$DryRun, [switch]$SingleSpecimen,
+      [string]$Faces = 'A,B')  # 3-face: -Faces A,B,C (needs face_C pose)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $vpy = Join-Path $root '.venv-station\Scripts\python.exe'
@@ -11,6 +12,7 @@ $env:ROBOT = $Robot
 if ($RobotPort) { $env:ROBOT_PORT = $RobotPort }
 if ($AdvisorUrl) { $env:ADVISOR_URL = $AdvisorUrl }
 $env:PICK_MODE = $PickMode
+$env:FACES = $Faces
 $env:PICK_DRY_RUN = if ($DryRun) { '1' } else { '0' }
 $env:SINGLE_SPECIMEN = if ($SingleSpecimen) { '1' } else { '0' }  # 로봇이 시료 하나를 들고 고정(같은 시료 연결 전제)
 $mock = $null

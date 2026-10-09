@@ -39,7 +39,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 class InspectRequest(BaseModel):
     session: str = "demo"
     specimen_id: str
-    face: Literal["A", "B"]
+    face: Literal["A", "B", "C"]  # 3면 테이프 검사용 C(스테이션 FACES=A,B,C)
     attempt: Literal[0, 1] = 0
     trigger_id: str | None = None
     single_stationary_specimen: bool = False

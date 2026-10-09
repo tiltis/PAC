@@ -10,7 +10,7 @@ from typing import Dict, Iterable, Optional
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_POSES = BASE_DIR / "poses.json"
 
-POSE_NAMES = ["home", "pick_approach", "pick", "lift", "face_A", "face_B", "bin_ok", "bin_human"]
+POSE_NAMES = ["home", "pick_approach", "pick", "lift", "face_A", "face_B", "face_C", "bin_ok", "bin_human"]  # face_C는 FACES=A,B,C일 때만 쓴다
 JOINT_KEYS = [
     "shoulder_pan.pos",
     "shoulder_lift.pos",
