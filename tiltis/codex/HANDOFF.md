@@ -330,3 +330,20 @@ API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/p
 첫 창의 release는 종료된 localhost8000 확인에 timeout=1s를 써 실제 Windows의 약2.046s/WSAECONNREFUSED(10061) 응답보다 빨리 실패했다. 실제 재현 후 timeout=5s로 수정했고, 연결 여부 미확인/다른 오류는 계속 거부한다. 미연결 티칭 서버만 재시작했다. 중간 재시작이 base Python으로 실행돼 uvicorn 누락을 냈으며 즉시 .venv-station 실행 파일로 교정했다. 최종 listener PID28228, POST /api/release 200, GET status connected=true/free=true/error=null과 브라우저의 HOME 기록 활성화를 실제 확인했다. 사용자 팔 지지 체크와 반복된 연결 요청 범위에서 Codex가 1번을 실행했다. HOME/하강 위치 기록과 저장 버튼은 사용자가 지정하며 Codex가 대신 누르지 않았다. 8000은 멈춰 있고 COM8은 8003 티칭 서버가 단독 소유한다. 증거 connected_teaching.png/server.log.
 
 추가 회귀는 종료된 서버/열린 listener/시간초과/기타 소켓 오류 4개이며 최소5s 확인 시간과 실패시 연결금지를 검증했다. home_teach 전체 35 passed, 1 warning (2.70s). 모의 테스트로 실제모터를 호출하지 않았다.
+
+
+## 2026-10-10 — 가르친 두 점 실행 연결과 가까운 상자 IK 허용
+
+사용자가 HOME/LOWER 저장을 확인하고 실행 UI를 요청했다. 실제 파일 home_path_teaching.json의 두 관측과 저장 시각을 확인했다. 새 HOME은 모델상 (212.7,17.2,248.4)mm, LOWER는 (294.3,69.6,0.5)mm로 같은 XY의 수직 이동이 아니다. 이 차이와 기존 10mm 바닥 여유 미달을 알린 뒤 사용자가 그대로 진행하도록 명시했다. 따라서 새 모드는 완전 수직 IK 모드가 아니라 가르친 관절 경유점 모드이며 UI에도 명시한다. 이전 strict Cartesian 한계를 조용히 바꾼 것이 아니다.
+
+Codex 전용 vision_pick/taught_approach.py, retained_robot.py, taught_station.py와 세 테스트 파일을 추가했다. 실행 경로는 HOME→기록 LOWER→기존 카메라 접근→기존 집기다. home/box별 HOME은 실행 객체 메모리에서만 기록 HOME으로 대체하며 원본 poses.json과 handeye/grasp 보정은 유지한다. 초기/복귀 HOME 및 HOME→LOWER→approach→grasp 관절 보간의 모델 한계/1도 표본/TCP z>=0을 검사한다. 이번에 사용자가 지정한 낮은 경유점만 0mm 기준으로 검증하며 기존 비전 grasp 목표의 최소높이 설정은 유지한다. 20deg/s·모델TCP50mm/s 명령 시간 확대와 실제 도달/그리퍼 검사는 기존 sequencer를 재사용한다. 실측 속도/충돌/수직직선 경로를 보장하지 않는다.
+
+8003에서 hold를 실행해 connected=true/free=false/saved=true를 확인한 뒤 종료하고 8000 실행 UI로 전환했다. 기존 SDK connect/configure의 토크 끄기를 피하기 위해 이전에 검토한 codex/tools/robot_status.make_reader를 재사용한 RetainedSo101Robot을 사용한다. bus.connect(handshake=True)와 보정/토크6개ON/position mode0/현재각도 읽기만 수행하며 torque/goal/PID/보정 쓰기는 없다. 종료/실패도 disable_torque=False다. 이미 모터가 고정된 동일 현장 세션의 소유권 인수용이며 전원 켠 새 장비의 초기 설정을 대체하지 않는다. SDK0.6.1만 허용한다.
+
+사용자가 가까운 상자 제한 수정을 요청해 TaughtPicker는 원본 cfg를 깊은 복사한 뒤 옆집기 최소반경만 0으로 설정해 기존 IK에 판단을 맡긴다. 최대반경490mm와 이후의 관절/접근/높이 검사는 유지한다. 기존 코드는 턱/TCP 보정 전 상자중심에도 최소370mm를 적용해 도달 가능한 가까운 상자를 거부했다. 현장 보정+합성345mm 입력은 수정 전 거리 거부, 수정 후 IK 및 기록 LOWER→접근→집기 모델 경로 통과(보정후TCP반경378.4mm)다. 원본 grasp_config.json의 범위370~490mm는 불변이며 이 별도 실행 진입점에서만 하한 판단을 변경한다.
+
+테스트: retained_robot 17passed(0.86s), taught_approach 17passed(0.63s), taught_picker 11passed(1.25s). 정확한 현장 소스를 쓰는 오프라인 fake/API 검사에서 LOWER 관절 명령 일치, 2단계 순서, UI/status 모드, 가르친 파일 변경 시 시작409, 구 설정 API로 모드 덮기 불가를 확인했다. 실제 장비 명령과 구분한다. 증거는 C:/Users/tilti/PAC2026_data/home_teach_20261010의 taught_entry_mock_checks.json, taught_station_verified.json, near_reach_model_check.json, taught_execution_ui.png, 두 launch/deployment JSON과 로그다.
+
+실제 8000 하드웨어 연결·카메라3대 수신·taught_home_lower 모드·저장 HOME/LOWER 일치를 확인하고 검사 시작 버튼이 있는 UI를 열었다. Codex는 검사 시작을 누르지 않았다. 사용자가 직접 실행한 초기 시도는 상자344mm 거리제한으로 실패했고, 상자를 옮긴 후 시도는 비전416.4mm IK 성공 뒤 home_start 실제도달 위치오차12.94mm/방향2.78도로 하강 전에 실패했다. 관절 안정화 허용5도와 Cartesian 허용5mm가 다르므로 추가대기만으로 해결됨을 주장하지 않으며 도달 검사를 완화하지 않았다. 가까운 상자 수정 배포 때 실행 중을 감지해 첫 재시작은 취소했고 idle/error가 된 뒤 토크 유지 방식으로 재시작했다. 아직 가르친 LOWER의 실제 도달/집기/검사/분류 완주를 확인하지 않았다.
+
+현재 실행 진입점은 Codex vision_pick/taught_station.py(환경 PAC_SYSTEM_DIR=C:/PAC2026_system, ROBOT_PORT=COM8, PICK_MODE=vision, 기존 현장 환경 재사용)다. 일반 station/app.py로 시작하면 이 별도 모드가 적용되지 않는다. 저장 파일 변경은 실행 전409로 막고 새 검증/재연결이 필요하다. 기존8003 티칭서버는 종료됐고8000만 COM8 소유. 현장 원본 파일 전체를 덮어쓰지 않았다.
