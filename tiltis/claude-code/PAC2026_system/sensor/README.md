@@ -2,6 +2,8 @@
 
 Windows 전용(DirectShow). 카메라: Arducam IMX179(RGB), FLIR Boson 320(열화상, Y16 원시값).
 
+기종별 스펙은 [CAMERAS.md](CAMERAS.md).
+
 ## 설치 (새 PC)
 
 ```powershell
