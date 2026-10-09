@@ -131,3 +131,10 @@ c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재�
 auto hand-eye의 frac(높이 비율)를 그리퍼 개방률로 덮어쓰는 오류와 camera 상자 중심↔robot 손가락 끝 대응을 수정했다. 수동/자동은 설정된 턱 중심과 공통 카메라 파지점을 기록한다. 기존 실측 handeye 파일은 해당 기준과 일치하는지 검증할 것. 기존 C:/PAC2026_system 파일과 poses/calibration/COM8, 8000/8001은 교체/호출하지 않았다.
 
 검증: RGB43, guard60, sensor 전체121, station 전체115 pass. 추가 보정2 pass, 마지막 직교화 후 정렬14/vision+auto17 부분 pass도 확인했다. 자세한 시간/명령/범위는 ../codex/HANDOFF.md. 별도 읽기 전용 preview_server가 127.0.0.1:8002에서 실제 3카메라를 표시하며 SDK/카메라 핸들/모터 명령 없음. 현재 구버전 8001의 후보 수·촬영 시각 계약 및 실측 workspace가 없어 자동 이동 차단. SAM 실기에는 rectified RGB-depth 정합/신선한 paired reader가 필요하다. 가상 값으로 이 조건을 통과시키지 않았다.
+
+### 정정 (2026-10-09 20:30): Codex 통합 커밋(66bbb31) 위에서 옆집기 계획만 실기 검증본으로 되돌림
+- 66bbb31 의 plan_side(side_box_alignment: 상자 변 방향으로 접근)는 시뮬에서 yaw 0/10/20/30/45° 모두 IK 실패(5축 팔은 접근축이 로봇 중심을 지나야 함).
+  노트북 실기에서 집기 성공(holding 0.50, 2회 완주)한 plan_side(턱 중심 URDF 오프셋 + 반복 계산 + 절대 높이)로 되돌리고,
+  Codex teach.py 가 쓰는 camera_grasp_point 보조 함수는 Codex 버전에서 가져와 유지했다. locate.py·server.py·테스트·가드는 Codex 버전 그대로.
+- 검증: 스테이션 117 통과, 센서 121 통과. 실기 DryRun 결과는 아래 줄에 추가.
+- poses.json/handeye.json 은 노트북 실측본으로 갱신. 동기화는 삭제 없이 덮어쓰기만.
