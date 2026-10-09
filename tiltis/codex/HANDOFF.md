@@ -82,3 +82,21 @@ Codex 수정: `claude-code/PAC2026_system/sensor/server.py`의 깊이 과반 집
 **110 passed, 4 warnings, 54.61s**. Node `vm.Script`로 브라우저 JS 구문, `JSON.parse`로 예시 자세 JSON 형식도 확인했다. 모두 모의 로봇 검증이며 센서 코드는 이번 분류 변경에서 수정하지 않았다. 실행 중 `C:/PAC2026_system` 카메라/스테이션 배포본 및 실제 `poses.json`은 교체하지 않았다. 별도 미리보기 서버 준비/실행 요청은 자동 도구 정책으로 차단되어 실행되지 않았으며 8002 화면을 열었다고 보고하지 않는다. 변경 UI는 소스로 제공하며 브라우저 렌더링은 미검증이다.
 
 다음 작업: 현장 두 영역을 고정하고 `bin_ok`=파랑에서 내려놓는 자세, `bin_human`=빨강에서 내려놓는 자세로 티칭한다. 색으로 영역 좌표를 자동 검출하는 기능은 구현하지 않았다. 로봇 모델·연결·보정·현재 상태 확인, 기존 접근/중단 문제 해결, 두 경로의 도달성·충돌·실제 속도 검증과 사용자 실기 승인 후 저속 구동한다. 실제 분류 완료로 주장하지 않는다.
+
+## 2026-10-09 후속: USB 로봇 연결 감지와 상태 조회 준비
+
+사용자가 로봇을 연결했다고 알렸다. Windows 장치 열거에서 새 `USB-Enhanced-SERIAL CH343(COM8)`을 확인했다. 기존 COM7을 로봇 포트로 단정하지 않았다. 실제 보정 프로세스는 `lerobot-calibrate --robot.type=so101_follower --robot.port=COM8 --robot.id=so101_follower`로 실행 중이었다. 사용자에게 모델·기존 보정 ID를 질문했으며 팔 형상/현장 사양을 이 프로세스만으로 확정하지 않는다.
+
+설치 환경은 `C:/PAC2026_system/.venv-station`: Python 3.12.3, LeRobot 0.6.1, feetech-servo-sdk 1.0.0, pyserial 3.5. 설치 SDK의 SOFollower 일반 connect는 보정/모터 configure를 수행하고 기본 disconnect는 토크를 끌 수 있다. 따라서 모터 설정 없이 상태 조회하는 `tools/robot_status.py`를 추가했다. 기존 SDK의 모터 정의와 하위 버스 handshake/read를 재사용하고 robot.connect/configure/calibrate 및 write/send_action을 호출하지 않는다. 버스를 닫을 때 `disable_torque=False`를 명시하고, 미보정 데이터는 raw tick으로만 표시한다. 카메라는 구성하지 않는다. SDK 0.6.1 이외 버전은 재검토 전 거부한다.
+
+```powershell
+# codex/tools 에서
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m unittest discover -s tests -v
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' robot_status.py --model so101 --port COM8 --id so101_follower --metadata-only
+```
+
+모의 **5개 unittest 통과(0.005s)**: 메타데이터만 조회, 보정된/미보정 상태 단위, handshake/읽기/누락/NaN 실패 시 토크 변경 없는 포트 정리, 기존 열린 버스 보존. 실제 설치 SDK로 `--metadata-only`도 성공했으며 **포트를 열지 않았다**. 일반 상태 조회·실제 관절/EE 관측·이동은 실행하지 않았다.
+
+작업 도중 보정 파일 `~/.cache/huggingface/lerobot/calibration/robots/so_follower/so101_follower.json`이 15:16:13에 저장됐다. 0.6.1의 파일 디렉터리는 `so_follower`임에 주의한다. 저장 시점 base shoulder_pan 범위는 1959~2107(148tick)으로 작았으나 현장 허용 범위가 확인되지 않아 임의 임계값으로 보정 완료/실패를 확정하지 않았다. 재보정 프로세스가 새로 실행 중이므로 COM8에 중복 접속하지 않았고 프로세스를 종료하지 않았다. 당시 `C:/PAC2026_system/station/poses.json`은 없었다. 실제 보정 파일·로그·자세는 업로드하지 않는다.
+
+다음: 사용자 모델 확인과 진행 중 보정 종료 후 최신 보정 범위를 다시 확인하고, 포트를 쓰는 프로그램이 없을 때 읽기 점검으로 모터 응답·보정 일치·실제 관절값을 확인한다. 모터 응답 확인만으로 두 분류 경로가 준비됐다고 주장하지 않는다. 파랑/빨강 티칭, 관절/접근/충돌/실제 속도/중단 문제 검증과 사용자 실기 승인이 남아 있다. 기존 검사 서버는 여전히 모의 로봇이며 배포본은 교체하지 않았다.
