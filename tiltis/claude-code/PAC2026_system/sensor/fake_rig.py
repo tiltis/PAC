@@ -36,8 +36,8 @@ class FakeRig:
     def capture_pair(self, session, specimen_id, face, note="", ffc=True, trigger_id=None, attempt=None):
         validate_capture_name(session)
         validate_capture_name(specimen_id)
-        if face not in ("A", "B"):
-            raise ValueError("face는 A 또는 B여야 한다")
+        if face not in ("A", "B", "C"):
+            raise ValueError("face는 A, B 또는 C여야 한다")
         t0 = time.time()
         h, w = self.cfg.vis_height, self.cfg.vis_width
         vis = np.full((h, w, 3), 90, np.uint8)

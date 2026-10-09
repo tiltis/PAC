@@ -190,7 +190,7 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("--capture", required=True)
         if name != "detect":
-            s.add_argument("--face", required=True, choices=["A", "B"])
+            s.add_argument("--face", required=True, choices=["A", "B", "C"])
     s = sub.add_parser("intrinsics")
     s.add_argument("--session", required=True)
     s.add_argument("--cam", required=True, choices=["lwir", "vis"])

@@ -199,3 +199,28 @@ def test_auto_tape_rois_find_three_green_tapes(calib_dir):
     missing = make_set(root, "two", 1, tapes=(True, False, True))
     with pytest.raises(SystemExit):
         rules_calib.cmd_roi_tape(argparse.Namespace(capture=missing[0], face="A", rois="", auto=True, count=3))
+
+
+def test_rules_cli_calibrates_face_c_and_detects_missing_tape(calib_dir, monkeypatch):
+    root = calib_dir / "caps"
+    on = make_set(root, "c_on", 3, face="C")
+    tape_off = make_set(root, "c_no_tape", 3, face="C", tapes=(False, False, False))
+    cool_off = make_set(root, "c_no_coolant", 3, face="C", coolant=False)
+
+    def cli(*args):
+        monkeypatch.setattr(sys, "argv", ["rules_calib.py", *args])
+        rules_calib.main()
+
+    cli("roi-tape", "--capture", on[0], "--face", "C", "--auto", "--count", "3")
+    cli("roi-coolant", "--capture", on[0], "--face", "C", "--rois",
+        f"{','.join(map(str, BOX))};{','.join(map(str, REF))}")
+    cli("fit", "--tape-on", *on, "--tape-off", *tape_off,
+        "--coolant-on", *on, "--coolant-off", *cool_off, "--source-id", "synthetic-face-c")
+    saved = rules.load()
+    assert saved["validated"] is True
+    assert all(t["face"] == "C" for t in saved["tapes"])
+    assert saved["coolant"]["face"] == "C"
+    vis, lw, _ = capture(face="C", tapes=(True, False, True), coolant=False, tape_bgr=GREEN_BGR)
+    verdict, reasons, features = rules.judge_face("C", vis, lw, saved)
+    assert verdict == "suspect" and "tape_missing_T2" in reasons and "coolant_absent" in reasons
+    assert features["tape_expected"] == 3 and features["tape_present_count"] == 2

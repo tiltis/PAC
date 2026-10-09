@@ -172,6 +172,22 @@ def test_object_locate_requires_depth(tmp_path):
         assert c.get("/object/locate").status_code == 409
 
 
+def test_inspect_face_c_preserves_capture_identity(tmp_path):
+    import json
+
+    with client(tmp_path) as c:
+        response = c.post("/inspect", json={"session": "three", "specimen_id": "S03",
+                                           "face": "C", "trigger_id": "face-c-test"})
+        assert response.status_code == 200
+        result = response.json()
+        assert result["status"] == "ok", result
+        assert result["face"] == "C" and result["trigger_id"] == "face-c-test"
+        capture = tmp_path / "three" / result["capture_id"]
+        meta = json.loads((capture / "meta.json").read_text(encoding="utf-8"))
+        assert meta["face"] == "C" and meta["trigger_id"] == "face-c-test"
+        assert c.get(result["images"]["rgb"]).status_code == 200
+
+
 @pytest.mark.parametrize("samples, expected_mm", [
     ([400, 401, 0, 399, 0], 400),  # 유효한 3/5 프레임의 중앙값을 유지
     ([400, 0, 0, 399, 0], 0),    # 유효 깊이가 과반 미만이면 거부

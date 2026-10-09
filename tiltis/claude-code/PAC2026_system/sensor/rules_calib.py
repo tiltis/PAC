@@ -202,7 +202,7 @@ def main():
     for name in ("roi-tape", "roi-coolant"):
         s = sub.add_parser(name)
         s.add_argument("--capture", required=True)
-        s.add_argument("--face", required=True, choices=["A", "B"])
+        s.add_argument("--face", required=True, choices=["A", "B", "C"])
         s.add_argument("--rois", default="")
         if name == "roi-tape":
             s.add_argument("--auto", action="store_true", help="초록 테이프 자동 찾기")

@@ -111,3 +111,17 @@ def test_distort_undistort_inverse():
     pts = np.array([[20.0, 20.0], [160.0, 128.0], [300.0, 240.0]])
     u = reg.undistort_pts(pts, (K, dist))
     assert np.allclose(reg.distort_pts(u, (K, dist)), pts, atol=0.05)
+
+
+def test_calibration_cli_saves_and_checks_face_c(synthetic_capture, monkeypatch):
+    import calib
+
+    cap, truth = synthetic_capture
+    monkeypatch.setattr(sys, "argv", ["calib.py", "homography", "--capture", str(cap), "--face", "C"])
+    calib.main()
+    saved = reg.Registration.load("C")
+    pts = np.array([[160.0, 128.0], [60.0, 60.0]])
+    assert np.abs(saved.lwir_to_vis(pts) - reg.apply_h(truth, pts)).max() < 3.0
+    monkeypatch.setattr(sys, "argv", ["calib.py", "check", "--capture", str(cap), "--face", "C"])
+    calib.main()
+    assert (cap / "calib_check_faceC.png").exists()

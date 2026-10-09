@@ -4,14 +4,14 @@
 
 키
   SPACE  촬영(FFC → 0.5초 대기 → RGB 1장 + 열화상 8장 저장)
-  a / b  촬영 면 선택
+  a / b / c  촬영 면 선택
   n      시편 번호 +1 (target01 → target02)
   f      FFC 지금 실행
   m      FFC 자동 / 수동 전환 (실험 촬영은 수동 권장)
   l      RGB 노출·화이트밸런스를 현재 값으로 고정
   [ / ]  RGB 노출 한 단계 어둡게 / 밝게
   s      Arducam 드라이버 설정창 (열려 있는 동안 RGB 미리보기가 멈출 수 있음)
-  o      저장된 현재 면의 정합으로 열화상을 RGB 위에 겹쳐 보기 (calib/H_face<A|B>.json)
+  o      저장된 현재 면의 정합으로 열화상을 RGB 위에 겹쳐 보기 (calib/H_face<A|B|C>.json)
 --depth를 주면 Gemini 2 깊이 화면을 세 번째 칸에 띄운다(촬영 저장은 RGB·열화상만, 깊이 기록은 server.py --depth).
 RGB 화면에는 시편 ID 마커(marker.py)를 찾아 표시한다. 시편 번호와 같으면 초록, 다르면 빨강.
 
@@ -62,7 +62,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default=dt.date.today().strftime("%Y%m%d"))
     ap.add_argument("--specimen", default="test01")
-    ap.add_argument("--face", default="A", choices=["A", "B"])
+    ap.add_argument("--face", default="A", choices=["A", "B", "C"])
     ap.add_argument("--vis-res", default="1600x1200")
     ap.add_argument("--exposure", type=float, default=None, help="RGB 노출(log2초, 예: -6). 생략하면 자동")
     ap.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
@@ -174,7 +174,7 @@ def main():
                 out, meta = rig.capture_pair(args.session, state["specimen"], state["face"], note=args.note)
                 state["msg"] = f"saved {out.name} ({meta['elapsed_ms']} ms)"
                 print(state["msg"], "->", out)
-            elif k in (ord("a"), ord("b")):
+            elif k in (ord("a"), ord("b"), ord("c")):
                 state["face"] = chr(k).upper()
             elif k == ord("n"):
                 state["specimen"] = bump_id(state["specimen"])
