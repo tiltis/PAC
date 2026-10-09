@@ -358,3 +358,10 @@ preview_server.py 안내/헤더 변경, overlay 및 preview API 테스트 합계
 
 ### 상시 별도 카메라 창에도 적용
 사용자가 웹이 아닌 별도 RGB/LWIR/Depth 창을 지정했다. 기존 tools/live_view.py 기본 URL을8001/live.jpg에서8002/camera.jpg로 바꾸고 기존 --url 원본/원격 지정은 유지했다. --position X Y 옵션으로 기존 외부 모니터 위치를 유지했다. 공유 소스와 C:/PAC2026_system/tools/live_view.py에 동일 수정, AST 구문 확인. 실제 pythonw viewer PID9556만 명령을 대조한 뒤 교체했고 robot/sensor/preview 서버는 재시작하지 않았다. Computer Use로 새 PAC2026 Live RGB-LWIR-Depth 창에서 RGB 상자 하나에 빨간 윤곽이 표시되는 것을 직접 확인했다. 증거 target_overlay_20261010/standalone_outline.jpg. 다음 live_view.bat 실행에도 기본 테두리 영상이 열린다. 8002 preview가 켜져 있어야 하며 원본은 --url http://127.0.0.1:8001/live.jpg 로 선택 가능하다.
+
+## 2026-10-10 — 냉매 열화상 보정 준비
+사용자는 냉매 있음 시료만 준비됐다고 답했다. 현장 rules.json coolant=null로 냉매 판정이 꺼져 있음을 확인했다. 최근 저장 R010829_B_20261010_011858_293895의 Y16 uint16 stack(8,256,320), non-radiometric 저장을 확인했으며 냉매 유무는 확인되지 않아 unknown으로 기록했다. 미리보기 색이 아닌 원시값을 사용한다.
+
+codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_calib.py fit을 재사용한다. 별도 --workspace의 coolant_draft.json만 수정하며 운영 system 하위 경로를 거부한다. init, roi, measure, fit 제공. 원본 열화상 ROI 2개 bounds/겹침, real capture provenance, 면 일치, 중복 촬영/집단 중복, fit 화질 검증과 최소 양쪽3촬영을 확인한다. fit 결과도 실험용 validated=false/deployment_ready=false로 남겨 독립평가를 요구한다. 현재 테이프/밑면 설정, 판정, 카메라/로봇 서버를 수정·재시작하지 않았다. CLI 문서 COOLANT_LAB.md에 촬영조건/경과시간/실온 대조군/섭씨가 아닌 counts와 운영 적용 전제 기록.
+
+실제 tests/test_coolant_lab.py 4 passed (3.94s): ROI/원시스택 검사, 운영경로 거부, peer 함수를 사용하는 CLI end-to-end 합성 -100counts 측정 및 peer rules파일 불변. 현장 workspace C:/Users/tilti/PAC2026_data/coolant_lab_20261010 초기화와 readiness.json 생성. ROI를 임의로 지정하거나 과거 촬영을 냉매 있음으로 라벨링하지 않았다. 냉매 없음 시료, 현장 ROI, 같은 자세 반복 촬영, 별도 평가/최종 통합이 남았다. 실제 냉매 유무 분리 성능/자동 검사 활성화 완료가 아니다.
