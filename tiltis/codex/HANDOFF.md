@@ -199,3 +199,19 @@ Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57Z
 상대 집기 관련 부분 테스트 24 pass(19.51s), 센서 rules 13 pass(7.10s). 반면 Codex vision_pick 22 fail/36 pass(5.23s), rgb_box 6 fail/37 pass(1.20s): 공유에서 camera_grasp_point/side_box_alignment 및 table_roi/object_mask, preflight/접근 후 재확인/계산 lift 연결이 삭제됐다. 상자 회전 도달 불가를 radial 자세로 바꿔 통과하는 회귀도 확인했다. 촬영 timestamp/엄격 ROI·복수 후보 거부/미보정 해시 검사가 제거된 점은 diff로 확인. 결과와 실제 명령/한계는 [새 푸시 검토](../claude-code/reviews/CODEX_PUSH_REVIEW_3dffdae.md)에 있다.
 
 이번에는 검토/테스트/인계만 수행해 기능 코드는 변경하지 않았다. 기존 8000/8001 및 C:/PAC2026_system, 실측 보정/자세·COM8에 쓰기/로봇 명령 없음. 다음 통합은 현장 개선을 보존하면서 SAM–depth 계약, 상자 축 정렬, guard, 현재 lift를 연결해 위 실패를 해결해야 한다. 파랑 분류/흰 상자/열화상 기준은 Claude 인계에서 남은 실기 항목이다.
+
+## 2026-10-09 빠른 통합 및 읽기 전용 실행
+
+사용자 요청으로 3dffdae 현장 개선과 기존 SAM/guard 연결을 실제 통합했다. 기존 28개 실패(guard22/RGB6)를 먼저 재현한 검토에 이어, sensor locate의 table_roi/object_mask·엄격 ROI·복수 후보/수직 평면 basis와 회귀, sensor server 촬영 시각, Windows vision wrapper, 미보정 프로필 해시 거부를 복구했다. 상대 rules/count-golden, 접근 높이/거리 탐색·턱 TCP 오프셋·가까운 IK 분기·grasp dry stage/관측 오차·재집기 home·이동 시간/안정화 변경은 유지했다.
+
+공유 grasp는 상자 3D 변을 먼저 정렬하고 그 자세의 턱 오프셋으로 TCP를 보정한다. 보정 중 radial 방향으로 다시 돌리지 않는다. 경사진 책상 축을 수평화한 뒤 직교화해 실제 도구 회전 행렬을 사용한다. 도달 불가 자세는 거부한다. sequencer의 preflight, 접근/재시도 후 재확인, 현재 계산 lift 및 재촬영 lift 재사용, status pick_mode를 연결했다. wrapper는 dry_stage/dry_hold도 보존한다. tests는 새 grasp-first/높인 접근 동작을 검사하고 임의 회전 도달 불가 거부도 유지한다. 예시 config의 105mm면 임의 회전 정렬 가능하다는 문구는 갈색 80mm 대각선113mm와 불일치해 수정했다. 현장 config 수치는 변경하지 않았다.
+
+추가로 auto hand-eye에서 `frac`를 그리퍼 개방률로 재사용해 camera 높이 대응점을 바꾸던 오류를 수정했다. 수동/자동 보정의 카메라 점은 공통 helper를 쓰고 로봇 점은 설정된 턱 중심을 FK 회전/이동으로 계산한다. 기존 handeye.json이 이 기준에 맞는지 현장 검증이 필요하다. 기존 현장 파일을 재작성/복사하지 않았다. 새 모의 회귀는 80% 그리퍼 개방에도 50% 높이 대응을 유지하고 수동/자동 턱 중심 기록을 확인한다.
+
+실행 테스트(각 폴더의 `python -m pytest ... -q --disable-warnings --rootdir . --confcutdir . -o addopts= --tb=short`): RGB/깊이43 pass(2.54s), 최종 Codex vision60 pass/1warning(11.10s), sensor 전체121 pass/9warnings(54.43s), station 전체115 pass/4warnings(62.84s). 그 후 새 보정 회귀2 pass(0.41s), 마지막 직교화 후 정렬14 pass(1.28s) 및 station vision+auto17 pass/1warning(26.55s; 해당 시점 auto 1case, 이후 manual case도2 pass로 확인). 누락 해시 회귀를 복구한 test_grasp_check는 최종 부분 실행 결과를 아래에 추가한다. AST/JSON/PowerShell parser/diff whitespace도 확인했다. 전체 station 117개를 한 번에 재실행했다고 주장하지 않는다.
+
+`preview_server.py`/test/README를 추가하고 공유 최신 코드 + C:/PAC2026_system 보정 읽기 + 기존 센서 HTTP로 127.0.0.1:8002에 실행했다. SDK/직렬/카메라 핸들 없음, 실행 API 없음, motion_enabled=false. 실제 GET API와 RGB/열화상/Gemini2 합성 영상을 확인했고 IAB에 열어 화면을 보관했다. 서버 프로세스10408, exec session30647(이전 preview27372만 새 코드 반영을 위해 종료). 8000/8001 및 실제 배포 파일/COM8은 유지했다. 촬영 자료/스크린샷은 C:/Users/tilti/PAC2026_data/integration_20261009에만 있다.
+
+현장 결과: 기존 8001은 found=true 상자 약80×80×47.6mm를 반환했지만 candidate_count/captured_at_s가 없는 구버전 계약이다. API는 single_box_not_confirmed/workspace_not_measured 및 sam_live_connected=false로 차단한다. 첫 확인 영상에는 상자 두 개, 이후 화면에는 한 개가 보였으나 후보 수를 구버전 응답으로 확정하지 않는다. 실제 RGB-depth 정합/paired frame reader, 실측 workspace, 수정된 파지 기준의 hand-eye/TCP 검증이 아직 필요하다. 가상 값으로 채우거나 실기 완료라고 주장하지 않는다. 실제 이동 승인 요청은 실행 가능한 실측 조건을 확보한 뒤에 한다.
+
+최종 누락 보정 해시 회귀 `station/tests/test_grasp_check.py`: 8 pass/1warning(1.45s). 코드 셀/노트북이나 GPU는 이번에 실행하지 않았다. 실행 화면은 별도8002이고 실제8000으로 통합 소스를 배포한 결과가 아니다.

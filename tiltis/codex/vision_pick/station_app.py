@@ -21,6 +21,8 @@ preview_picker = GuardedVisionPicker(
     joint_map=base.joint_map if base is not None else None,
 )
 if base is not None:
+    preview_picker.dry_stage = getattr(base, "dry_stage", "approach")
+    preview_picker.dry_hold_s = getattr(base, "dry_hold_s", 8.0)
     seq.picker = preview_picker
 
 

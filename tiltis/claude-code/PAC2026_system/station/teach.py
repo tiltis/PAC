@@ -168,7 +168,7 @@ def fk_check(robot: So101Robot) -> None:
 def calibrate_handeye(robot: So101Robot, sensor_url: str, points: int) -> None:
     import handeye
     import kinematics as K
-    from grasp import load_config
+    from grasp import load_config, camera_grasp_point
     from sensor_client import SensorClient
     model, jm, cfg, sensor = K.SO101(), K.load_joint_map(), load_config(), SensorClient(sensor_url)
     cam, rob = [], []
@@ -183,21 +183,21 @@ def calibrate_handeye(robot: So101Robot, sensor_url: str, points: int) -> None:
         if not loc.get("found"):
             print("  상자를 못 찾음:", loc.get("reason"), loc.get("rejected", ""))
             continue
-        n = np.array(loc["table_normal_cam"])
+        c, height_or_depth = camera_grasp_point(loc, cfg)
         if side and loc.get("box_center_on_table_cam_mm") is not None:
-            h = float(np.clip(cfg["side_height_frac"] * loc["top_height_mm"] + cfg["side_tcp_offset_mm"], 5.0, loc["top_height_mm"] - 5.0))
-            c = np.array(loc["box_center_on_table_cam_mm"]) + n * h  # 옆집기 집는 점(상자 중심, 높이 h)
+            h = height_or_depth
             print(f"  카메라: 상자 {loc.get('box_mm')} 높이 {loc['top_height_mm']}mm, 집는 점 {np.round(c, 1).tolist()} (높이 {h:.0f}mm)")
         else:
-            c = np.array(loc["top_center_cam_mm"]) - n * cfg["tab_height_mm"] / 2  # 손잡이 높이 가운데
             print(f"  카메라: 손잡이 {loc['top_size_mm']}mm, 중심 {np.round(c, 1).tolist()}")
         robot.disable_torque()
         msg = ("  토크 OFF. 그리퍼로 상자를 옆에서 가운데 높이로 물고(집기 자세 그대로) Enter=기록, w=이 자세 고정(토크 ON), f=다시 풀기 "
                if side else "  토크 OFF. 그리퍼로 손잡이 가운데를 잡고 Enter=기록, w=이 자세 고정, f=다시 풀기 ")
         _hold_loop(robot, msg)
         q = K.from_lerobot(robot.current_joints(), jm)
-        p = model.fk(q)[:3, 3]
-        print(f"  로봇: 집게 끝 {np.round(p * 1000, 1).tolist()} mm")
+        tool = model.fk(q)
+        jaw_v = np.asarray(cfg.get("side_jaw_offset_frame_m") or [0, 0, 0], float) if side else np.zeros(3)
+        p = tool[:3, 3] + tool[:3, :3] @ jaw_v
+        print(f"  로봇: 파지 기준점 {np.round(p * 1000, 1).tolist()} mm")
         # 잘못 찍힌 점 걸러내기(10-09 현장: 팔을 든 채 Enter → z 128·169mm, 손이 상자 위 → 높이 76mm)
         bad = []
         if side and not (-0.02 <= p[2] <= 0.07):
@@ -231,7 +231,7 @@ def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.42, 0.46
     로봇 점 = 실제 관절값의 FK, 카메라 점 = 깊이로 잰 상자 중심(가운데 높이). 사람이 팔을 옮길 필요가 없다."""
     import handeye
     import kinematics as K
-    from grasp import load_config
+    from grasp import load_config, camera_grasp_point
     from sensor_client import SensorClient
     model, jm, cfg, sensor = K.SO101(), K.load_joint_map(), load_config(), SensorClient(sensor_url)
     frac, off = cfg["side_height_frac"], cfg["side_tcp_offset_mm"]
@@ -279,13 +279,15 @@ def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.42, 0.46
             time.sleep(1.2)
             g = robot.gripper_reading()
             qa = K.from_lerobot(robot.current_joints(), jm)
-            pa = model.fk(qa)[:3, 3]
+            tool = model.fk(qa)
+            jaw_v = np.asarray(cfg.get("side_jaw_offset_frame_m") or [0, 0, 0], float)
+            pa = tool[:3, 3] + tool[:3, :3] @ jaw_v
             robot.set_gripper("open")
             time.sleep(0.8)
             if g.get("open") is not None and g.get("closed") is not None and abs(g["open"] - g["closed"]) > 1e-6:
-                frac = (g["pos"] - g["closed"]) / (g["open"] - g["closed"])
-                if frac < 0.1:
-                    print(f"   ⚠ 집게가 끝까지 닫힘(빈손, {frac:.2f}) — 상자가 집게 사이에 없었음. 다시 끼우고 Enter")
+                grip_fraction = (g["pos"] - g["closed"]) / (g["open"] - g["closed"])
+                if grip_fraction < 0.1:
+                    print(f"   ⚠ 집게가 끝까지 닫힘(빈손, {grip_fraction:.2f}) — 상자가 집게 사이에 없었음. 다시 끼우고 Enter")
                     continue
             print("   팔을 뒤로 뺀 뒤(home) 카메라가 상자만 보게 하고 측정... 상자는 그대로 둘 것")
             robot.move_joints(K.to_lerobot(q_back, jm), 2.0)   # 먼저 조금 물러나 상자를 건드리지 않게
@@ -304,9 +306,7 @@ def calibrate_handeye_auto(robot: So101Robot, sensor_url: str, radii=(0.42, 0.46
                 robot.move_joints(K.to_lerobot(q_back, jm), 3.0); robot.wait_settled(4.0)
                 robot.move_joints(K.to_lerobot(q, jm), 2.0); robot.wait_settled(4.0)
                 continue
-            n = np.array(loc["table_normal_cam"])
-            h = float(np.clip(frac * loc["top_height_mm"] + off, 5.0, loc["top_height_mm"] - 5.0))
-            c = np.array(loc["box_center_on_table_cam_mm"]) + n * h
+            c, _ = camera_grasp_point(loc, cfg)
             cam.append(c)
             rob.append(pa)
             print(f"   기록 {len(cam)}: 카메라 {np.round(c, 1).tolist()} ↔ 로봇 {np.round(pa * 1000, 1).tolist()}mm")

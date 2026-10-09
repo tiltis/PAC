@@ -1,0 +1,88 @@
+"""Integrated source + current camera server preview. No robot or camera handles."""
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+
+from bootstrap import station_path
+
+station_path()
+import grasp
+import handeye
+from guard import GuardedVisionPicker, observation_error
+from sensor_client import SensorClient
+
+PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>PAC 통합 확인</title><style>body{font:16px system-ui;background:#111827;color:#e5e7eb;margin:24px}h1{font-size:24px}img{width:100%;max-width:1440px}button{padding:12px;font-size:16px}pre{white-space:pre-wrap;background:#1f2937;padding:16px}p{line-height:1.6}</style>
+<h1>PAC — 통합 코드 · 현재 카메라</h1>
+<p>로봇 이동 없음 · RGB / 열화상 / 깊이 화면 · 상자 위치/방향 및 준비 상태 확인</p>
+<img id="cam" src="/camera.jpg"><p><button onclick="check()">상자 위치·방향 확인</button></p>
+<pre id="result">확인 버튼을 누르세요.</pre>
+<script>setInterval(()=>cam.src='/camera.jpg?t='+Date.now(),1500);
+async function check(){result.textContent='깊이 측정 중…';try{let r=await fetch('/api/preview');result.textContent=JSON.stringify(await r.json(),null,2)}catch(e){result.textContent=String(e)}}check();</script></html>"""
+
+
+def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None):
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import HTMLResponse, Response
+    import httpx
+
+    site = Path(site_dir)
+    cfg = dict(grasp.DEFAULTS)
+    config_path = site / "station/calib/grasp_config.json"
+    if config_path.exists():
+        cfg.update(json.loads(config_path.read_text(encoding="utf-8-sig")))
+    he = handeye.load(site / "station/calib/handeye.json")
+    reader = sensor or SensorClient(sensor_url)
+    picker = GuardedVisionPicker(reader, he, dry_run=True, cfg=cfg)
+    app = FastAPI(title="PAC integrated preview (no motion)")
+
+    @app.get("/", response_class=HTMLResponse)
+    def index():
+        return PAGE
+
+    @app.get("/camera.jpg")
+    def camera():
+        try:
+            r = httpx.get(sensor_url.rstrip("/") + "/live.jpg", timeout=5)
+            r.raise_for_status()
+            return Response(r.content, media_type="image/jpeg")
+        except Exception as e:
+            raise HTTPException(503, f"Camera preview unavailable: {type(e).__name__}")
+
+    @app.get("/api/preview")
+    def preview():
+        loc = reader.locate()
+        observed = observation_error(loc, time.time(), picker.limits)
+        ready = picker.preflight_ready()
+        orientation = None
+        if loc.get("found") and he is not None:
+            try:
+                import numpy as np
+                point, _ = grasp.camera_grasp_point(loc, cfg)
+                approach, jaw, yaw, _ = grasp.side_box_alignment(loc, he, handeye.point(he, point))
+                orientation = {"source": "depth_camera_box_axes", "yaw_deg": round(float(np.degrees(yaw)), 1),
+                               "approach_axis_base": approach.tolist(), "jaw_axis_base": jaw.tolist(),
+                               "verified_for_motion": False}
+            except (ValueError, TypeError, KeyError) as e:
+                orientation = {"error": str(e)}
+        return {"motion_enabled": False, "mode": "preview_only", "readiness": ready,
+                "observation_check": observed, "orientation_candidate": orientation, "locate": loc,
+                "sam_live_connected": False,
+                "sam_live_reason": "verified RGB-depth registration and paired frames not configured",
+                "code_dir": str(Path(__file__).resolve().parents[2] / "claude-code/PAC2026_system"),
+                "calibration_dir": str(site)}
+
+    return app
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--site-dir", required=True)
+    ap.add_argument("--sensor-url", default="http://127.0.0.1:8001")
+    ap.add_argument("--port", type=int, default=8002)
+    args = ap.parse_args()
+    import uvicorn
+    uvicorn.run(create_preview_app(args.site_dir, args.sensor_url), host="127.0.0.1", port=args.port)

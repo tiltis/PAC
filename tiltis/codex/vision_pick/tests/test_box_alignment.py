@@ -54,7 +54,10 @@ def test_side_plan_passes_same_box_orientation_to_approach_grasp_and_lift_ik():
     for _, direction, yaw in model.calls:
         assert np.allclose(direction, approach, atol=1e-6)
         assert abs(np.degrees(yaw) - result["yaw_deg"]) < .1
-    assert np.allclose(model.calls[1][0] - model.calls[0][0], approach * .05, atol=1e-6)
+    # Field planner solves grasp first, then searches a raised approach near that IK branch.
+    delta = model.calls[0][0] - model.calls[1][0]
+    assert np.isclose(np.dot(delta, approach), .05, atol=1e-6)
+    assert np.isclose(delta[2], -result["approach_back_mm"][1] / 1000, atol=1e-6)
 
 
 @pytest.mark.parametrize("bad", [None, [0, 0, 0], [0, 0, 1], [float("nan"), 1, 0], [1, 0, 0], [0,1,1]])
@@ -76,3 +79,23 @@ def test_unreachable_box_aligned_orientation_is_refused_without_radial_fallback(
                box_center_on_table_cam_mm=[220,0,500], top_center_cam_mm=[220,0,455])
     result = grasp.plan_side(loc, HE, K.SO101(), dict(grasp.DEFAULTS, grasp_mode='side'))
     assert result['ok'] is False and 'approach' not in result
+
+
+def test_jaw_tcp_correction_does_not_rotate_away_from_measured_box_edges():
+    class Solver:
+        def __init__(self): self.positions = []
+        def ik(self, p, down, yaw, q0=None):
+            self.positions.append((p.copy(), down.copy(), yaw))
+            return np.zeros(5)
+        def error(self, *args): return [0, 0]
+    model = Solver()
+    loc = dict(edges(20), top_height_mm=90, box_center_on_table_cam_mm=[220, 0, 500])
+    offset = [-.0281, .019, -.0347]
+    p = grasp.plan_side(loc, HE, model, dict(grasp.DEFAULTS, grasp_mode="side", side_jaw_offset_frame_m=offset))
+    assert p["ok"], p
+    tip, direction, yaw = model.positions[0]
+    jaw = np.array([np.cos(yaw), np.sin(yaw), 0])
+    R = np.column_stack([jaw, np.cross(direction, jaw), direction])
+    # Reconstructed jaw center, rather than the fingertip, must hit the measured box center.
+    assert np.allclose(tip + R @ offset, [.42, 0, .045])
+    assert abs(np.dot(jaw, HE["R"] @ loc["short_axis_cam"])) > .999

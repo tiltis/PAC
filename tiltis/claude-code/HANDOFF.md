@@ -123,3 +123,11 @@ c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재�
 ## Codex 확인: 새 푸시 3dffdae의 연결 회귀
 
 사용자 요청으로 새 푸시를 동기화하고 읽기/모의 테스트를 수행했다. GET status/runs에서 hardware 및 run31/32 done/human/error=null 기록을 확인했다. 현장 개선은 보존했다. 상대 집기 부분24/rules13 pass이지만 Codex vision_pick22 fail/36 pass, rgb_box6 fail/37 pass이다. 공유의 상자 축 정렬·camera_grasp_point·SAM table_roi/object_mask, preflight/접근 후 재확인/계산 lift 연결이 빠졌다. 촬영 timestamp·ROI/복수 후보·누락 보정 해시 검사 제거도 diff로 확인했다. 상세 근거/명령/범위는 [검토 기록](reviews/CODEX_PUSH_REVIEW_3dffdae.md). 이번에는 검토/기록만 수행하고 기능/배포/로봇은 변경하지 않았다. 현장 개선과 기존 SAM/guard 계약을 함께 통합하는 작업이 남는다.
+
+## Codex 통합: 현장 개선 유지 + SAM/guard 계약 복구
+
+사용자 요청으로 위 회귀를 수정했다. 턱 TCP·높이/접근 탐색·가까운 IK·재집기 home·dry grasp/오차 로그·면별 테이프 판정은 유지한다. 상자 변에 맞춘 접근/집게 각도를 턱 오프셋 계산에서도 유지하며 도달 불가 시 radial로 대체하지 않는다. sensor의 SAM mask/별도 table ROI/다중 후보 거부·capture timestamp와 회귀, Windows vision guard wrapper, sequencer preflight/접근 후 재확인/현재 lift·재촬영 lift, 미보정 프로필 해시 거부를 복구했다.
+
+auto hand-eye의 frac(높이 비율)를 그리퍼 개방률로 덮어쓰는 오류와 camera 상자 중심↔robot 손가락 끝 대응을 수정했다. 수동/자동은 설정된 턱 중심과 공통 카메라 파지점을 기록한다. 기존 실측 handeye 파일은 해당 기준과 일치하는지 검증할 것. 기존 C:/PAC2026_system 파일과 poses/calibration/COM8, 8000/8001은 교체/호출하지 않았다.
+
+검증: RGB43, guard60, sensor 전체121, station 전체115 pass. 추가 보정2 pass, 마지막 직교화 후 정렬14/vision+auto17 부분 pass도 확인했다. 자세한 시간/명령/범위는 ../codex/HANDOFF.md. 별도 읽기 전용 preview_server가 127.0.0.1:8002에서 실제 3카메라를 표시하며 SDK/카메라 핸들/모터 명령 없음. 현재 구버전 8001의 후보 수·촬영 시각 계약 및 실측 workspace가 없어 자동 이동 차단. SAM 실기에는 rectified RGB-depth 정합/신선한 paired reader가 필요하다. 가상 값으로 이 조건을 통과시키지 않았다.

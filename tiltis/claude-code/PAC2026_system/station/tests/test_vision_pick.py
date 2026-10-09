@@ -172,21 +172,23 @@ def test_plan_grasp_depth_from_box_height_reaches_both_specimens():
     assert not p["ok"] and "역기구학" in p["reason"]
 
 
-def _side_loc(center_robot_m, height_mm):
+def _side_loc(center_robot_m, height_mm, box_angle_deg=0):
     """로봇 좌표의 상자 바닥 중심 → 센서 front 모드 결과(카메라 좌표)."""
     inv = R_CAM.T
     c = np.asarray(center_robot_m, float)
+    a = np.radians(box_angle_deg)
     return {"found": True, "mode": "front_face_model", "top_height_mm": height_mm, "box_mm": [70, 70, height_mm],
             "box_center_on_table_cam_mm": (inv @ (c - T_CAM) * 1000).tolist(),
             "top_center_cam_mm": (inv @ (c + [0, 0, height_mm / 1000] - T_CAM) * 1000).tolist(),
             "table_normal_cam": (inv @ np.array([0, 0, 1.0])).tolist(), "top_size_mm": None,
-            "short_axis_cam": (inv @ np.array([1.0, 0, 0])).tolist(), "long_axis_cam": (inv @ np.array([0, 1.0, 0])).tolist()}
+            "short_axis_cam": (inv @ np.array([np.cos(a), np.sin(a), 0])).tolist(),
+            "long_axis_cam": (inv @ np.array([-np.sin(a), np.cos(a), 0])).tolist()}
 
 
 def test_side_grasp_plans_horizontal_approach_in_reach_band():
     cfg = dict(grasp.DEFAULTS, grasp_mode="side")
     for r, h in ((0.40, 90.0), (0.42, 45.0), (0.44, 90.0)):
-        p = grasp.plan(_side_loc([r, 0.05, 0.0], h), HE, cfg=cfg)
+        p = grasp.plan(_side_loc([r, 0.05, 0.0], h, np.degrees(np.arctan2(.05, r))), HE, cfg=cfg)
         assert p["ok"] and p["grasp_mode"] == "side", (r, h, p)
         Tg = K.SO101().fk(K.from_lerobot(p["grasp"]))
         assert abs(Tg[2, 3] - h / 2000) < 0.003            # 집는 점 높이 = 상자 높이 절반
