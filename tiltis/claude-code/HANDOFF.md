@@ -177,3 +177,17 @@ codex/vision_pick/box_overlay.py는 기존 sensor/rules.py의 CARDBOARD/GREEN �
 사용자가 요청한 화면 적용: C:/PAC2026_system/station/web/index.html만 기존 hash 비교 후 백업하고 배포(서버 재시작 불필요). 백업 C:/PAC2026_system/Log/codex_ui_reasons_20261009/index.before.html. 로봇8000/센서8001 코드/보정/프로세스에는 쓰기/중단 없음. 소유 확인된 Codex8002만 재시작(최종PID3576, exec70420). station 카메라는 노트북 localhost에서8002 annotated GET 사용, 실패시 기존 /sensor-live로 복귀. 원격 접속은 기존 원본 영상 유지. 실제 모터 명령/검사 시작 없음. 동시 Claude 실행에서 나온 multiple_boxes/IK실패는 이번 UI 작업의 실행 결과가 아니다.
 
 증거: C:/Users/tilti/PAC2026_data/ui_reasons_20261009 (현재 영상/화면/실제 API 결과), Git에는 미디어·DB·보정·로그 제외. 현재 갈색 상자 윤곽 표시와 이유 설명만 추가했으며 SAM 정렬/새 놓기 guard는 여전히 별도 실기 검증 필요.
+
+## 2026-10-09 Codex — 검사 후 바닥 긁힘 방지용 분류 경로
+
+사용자가 옆 이동 중 상자가 바닥을 긁는다고 보고했다. 마지막 검사 자세에서 낮은 bin 자세로 바로 이동하던 공유 경로를 `상승 → 높은 위치에서 이동 → 하강 → 놓기 → 상승 → home`으로 분리했다. 기존 Claude 집기/검사/판정과 놓기 자세를 재사용하며 실행본의 놓은 뒤 `bin_*_up` 복귀·`mark_processed` 등 현장 변경을 보존한다. 실행본 전체 덮어쓰기를 하지 않는다.
+
+공유 변경은 `station/clearance_transfer.py`(신규), `robot.py`, `sequencer.py`, 세 transfer 테스트 파일과 README다. 기존 FK/IK·joint map·현장 상자 치수/턱 오프셋/책상 기준을 사용해 전체 경로를 먼저 검사한다. 기존 상단 자세는 놓기보다 120 mm 위다. 검사 후 상승은 현재 TCP +15 mm와 목적지 상단 높이 중 높은 쪽이며, 해당 검사 자세의 방향 보존 IK 제약 때문에 큰 임의 상승량을 강제하지 않는다. 관절 한계·보간 중 상자 여유·수직 구간을 검증하고, 단계별 엄격한 관절 안정화와 실제 관절 FK 위치 5 mm/방향 5°/요구 높이를 확인한다. `is_still`로 분류 이동 검사를 우회하지 않는다. 실패는 stop/hold하고 낮은 직접 이동으로 대체하지 않으며, 놓기 전 실패면 집게를 열지 않는다. 놓은 뒤 상승 실패면 `placed_bin`은 보존하되 home으로 이동하지 않는다. 기존 held/release 훅과 상자별 자세도 유지한다. 경유점 중단은 stop을 호출하지만 즉시 비상정지는 아니다.
+
+명령 시간은 관절 20°/s·FK 표본 TCP 50 mm/s에 맞춰 늘린다. 실제 속도 계측이 아니다. `transfer_plan`·`transfer_checks`에 계획과 확인 결과를 기록한다. 상자 경계 구는 올바른 턱 중심 파지와 미끄러짐 없음 가정이며 실제 장애물/바닥 접촉·home 경로 충돌을 검증한 것은 아니다.
+
+최종 검증 명령은 `PAC2026_system`에서 `.venv-station` Python으로 `-m pytest station/tests/test_clearance_transfer.py station/tests/test_transfer_robot.py station/tests/test_transfer_sequence.py station/tests/test_sequencer.py -q --disable-warnings --rootdir . --confcutdir . -o addopts=`. 시간 제한 회귀 4개까지 포함해 **167 passed, 1 warning (15.83s)**. 배포 예정인 정확한 재통합 실행본의 검사 B/C × 정상/부적격 × 카메라 색 구역 배치 3가지(정보 없음/정상/뒤바뀜), **12개 조합 모두 오프라인 통과**했으며 장치 연결/모터 명령은 없다.
+
+동시 변경: 배포 직전 hash 검사가 최신 Claude 실행본 변경을 찾아 프로세스를 멈추기 전에 최초 배포를 취소했다. 새 `place_pose_from_zones`·`_place_pose`의 `/zones` 기반 색 구역 선택을 다시 보존해, 실행본에서는 `self._place_pose(bin_name)`이 선택한 자세를 transfer planner에 전달한다. `mark_processed`도 유지한다. 위 12개 검증은 이 재통합본으로 실행했다. 공유 저장소는 기존 routing을 유지하며 Claude의 해당 변경 push 후 후속 통합이 필요하다. 현재 저장소와 실행본이 완전히 같지는 않다.
+
+배포 완료: **2026-10-09 22:36:00 KST**. 사용자가 빈 그리퍼·지지된 팔 상태에서 재연결을 승인한 뒤, 변경 hash를 재확인한 파일 3개를 적용했다. GET status는 `robot_mode=hardware`, `pick_mode=vision`, `state=idle`, `busy=false`, 검사면 B/C이며 수신 PID는 27040이었다. `/api/run` 또는 새 분류 사이클 호출은 없다. 백업은 `C:/Users/tilti/PAC2026_data/transfer_20261009/runtime_backup_223600`, 증거는 같은 상위 폴더의 `deployment.json`·`startup_verification.json`과 12개 오프라인 검증 결과다. 새 실제 분류 사이클·바닥 긁힘 해소·물리 충돌·안정적인 놓기 완료를 주장하지 않는다. [station README](PAC2026_system/station/README.md)와 [Codex 인계](../codex/HANDOFF.md)에 경로 계약과 남은 검증을 기록했다.

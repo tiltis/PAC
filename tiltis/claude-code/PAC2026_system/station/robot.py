@@ -270,6 +270,92 @@ class So101Robot(RobotBase):
     def move_joints(self, target: Dict[str, float], duration_s: float) -> None:
         self._move_joints({k: float(v) for k, v in target.items() if k != "gripper.pos"}, duration_s)
 
+    def plan_transfer(self, bin_pose_name: str) -> dict:
+        """Plan before moving: lift, high transfer, lower, then empty retract.
+
+        Reuses the loaded taught bin poses and this installation's box/TCP
+        settings. It never connects a second robot or writes calibration.
+        """
+        import math
+        import kinematics as K
+        from clearance_transfer import plan_transfer
+
+        system_dir = self.poses_path.resolve().parent.parent
+        grasp_path = system_dir / "station/calib/grasp_config.json"
+        object_path = system_dir / "sensor/calib/object_config.json"
+        if not grasp_path.is_file() or not object_path.is_file():
+            raise RobotError("분류 이동 높이 검증에 현장 grasp/object 설정이 필요합니다")
+        cfg = json.loads(grasp_path.read_text(encoding="utf-8-sig"))
+        objects = json.loads(object_path.read_text(encoding="utf-8-sig"))
+        if cfg.get("side_use_absolute_z") is not True:
+            raise RobotError("분류 이동의 책상 높이 기준이 확인되지 않았습니다")
+        boxes = objects.get("boxes_mm") or [objects.get("box_mm")]
+        if not boxes or any(not isinstance(b, list) or len(b) != 3 or any(
+                isinstance(v, bool) or not isinstance(v, (int, float)) or
+                not math.isfinite(v) or v <= 0 for v in b) for b in boxes):
+            raise RobotError("분류 이동에 실제 상자 치수(mm)가 필요합니다")
+        # Protect every configured box size even when a common bin pose is used.
+        largest = max(boxes, key=lambda b: sum(v * v for v in b))
+        try:
+            plan = plan_transfer(self.current_joints(), self.poses, bin_pose_name,
+                                 joint_map=K.load_joint_map(),
+                                 box_dimensions_mm=largest,
+                                 jaw_offset_m=cfg.get("side_jaw_offset_frame_m"),
+                                 table_z_m=0.0)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RobotError(f"분류 이동 경로 확인 실패: {exc}") from exc
+        return plan
+
+    def verify_transfer_stage(self, stage: str, plan: dict) -> dict:
+        """Verify actual joint observations before lateral motion/open/home.
+
+        FK is a model check; it does not observe box slip or physical contact.
+        """
+        import kinematics as K
+        import numpy as np
+
+        model = K.SO101()
+        joint_map = K.load_joint_map()
+        target_q = K.from_lerobot(plan[stage][-1], joint_map)
+        actual_q = K.from_lerobot(self.current_joints(), joint_map)
+        floor = float(plan["metadata"]["transit_floor_m"])
+        if (not np.isfinite(actual_q).all() or not np.isfinite(target_q).all()
+                or not np.isfinite(floor)):
+            return {"ok": False, "reason": "분류 이동 관절 관측값이 유효하지 않습니다"}
+        target, actual = model.fk(target_q), model.fk(actual_q)
+        error_mm = float(np.linalg.norm(target[:3, 3] - actual[:3, 3]) * 1000)
+        error_deg = float(np.degrees(np.arccos(np.clip(
+            (np.trace(target[:3, :3].T @ actual[:3, :3]) - 1) / 2, -1, 1))))
+        height_ok = stage == "lower" or actual[2, 3] >= floor
+        ok = error_mm <= 5.0 and error_deg <= 5.0 and height_ok
+        return {"ok": bool(ok), "stage": stage, "position_error_mm": round(error_mm, 2),
+                "orientation_error_deg": round(error_deg, 2),
+                "tcp_z_mm": round(float(actual[2, 3] * 1000), 2),
+                "reason": None if ok else "분류 이동 목표 높이·자세에 실제로 도달하지 않았습니다"}
+
+    def transfer_duration(self, target: dict, minimum_s: float) -> float:
+        """Slow transfer commands using current joints and sampled FK travel.
+
+        Command interpolation is bounded to 20 deg/s and an estimated 50 mm/s
+        TCP rate. This is not a measurement of hardware velocity/acceleration.
+        """
+        import kinematics as K
+        import numpy as np
+        minimum_s = float(minimum_s)
+        if not np.isfinite(minimum_s) or minimum_s <= 0:
+            raise RobotError("분류 이동 최소 시간은 양의 유한 값이어야 합니다")
+        model, joint_map = K.SO101(), K.load_joint_map()
+        start = K.from_lerobot(self.current_joints(), joint_map)
+        end = K.from_lerobot(target, joint_map)
+        if not np.isfinite(start).all() or not np.isfinite(end).all():
+            raise RobotError("분류 이동 시간 계산의 관절값이 유효하지 않습니다")
+        max_degrees = float(np.max(np.abs(np.degrees(end - start))))
+        samples = max(2, int(np.ceil(max_degrees)) + 1)
+        positions = np.array([model.fk(start + (end - start) * t)[:3, 3]
+                              for t in np.linspace(0, 1, samples)])
+        peak_step_m = float(np.max(np.linalg.norm(np.diff(positions, axis=0), axis=1)))
+        return max(float(minimum_s), max_degrees / 20.0, peak_step_m * (samples - 1) / 0.05)
+
     def set_gripper(self, state: str) -> None:
         if state not in ("open", "closed"):
             raise RobotError(f"알 수 없는 그리퍼 상태: {state}")
