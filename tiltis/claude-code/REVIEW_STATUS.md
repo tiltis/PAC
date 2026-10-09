@@ -10,10 +10,12 @@
 
 ## 재개
 
-로컬 터미널에서 `claude auth login`으로 로그인한 뒤 이 폴더에서 Claude Code를 실행하고 [REVIEW_PROMPT.md](REVIEW_PROMPT.md)를 전달한다. 아래 명령으로 읽기 전용 리뷰를 실행할 수도 있다.
+이 노트북의 Claude 실행 파일은 npm 폴더에 있으며 현재 쉘 PATH에는 없다. 아래처럼 로그인한 뒤 이 폴더에서 [REVIEW_PROMPT.md](REVIEW_PROMPT.md)를 전달한다. 다른 PC에서는 설치된 Claude 실행 경로로 바꾼다.
 
 ```powershell
-Get-Content -Raw -Encoding UTF8 REVIEW_PROMPT.md | claude -p --safe-mode --tools 'Read,Glob,Grep' --allowedTools 'Read,Glob,Grep' --add-dir '..'
+$pacClaude = Join-Path $env:APPDATA 'npm/claude.cmd'
+& $pacClaude auth login
+Get-Content -Raw -Encoding UTF8 REVIEW_PROMPT.md | & $pacClaude -p --safe-mode --tools 'Read,Glob,Grep' --allowedTools 'Read,Glob,Grep' --add-dir '..'
 ```
 
 결과를 이 폴더에 저장하고 Codex가 각 지적의 재현·수정·테스트 또는 미반영 근거를 HANDOFF.md에 남긴다. 실제 검토가 성공하기 전 이 기록을 완료로 바꾸지 않는다.
