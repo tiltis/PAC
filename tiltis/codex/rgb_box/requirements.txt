@@ -1,0 +1,6 @@
+# Run in a separate environment. Reuse existing torch 2.11.0 / torchvision 0.26.0 on this laptop.
+torch==2.11.0
+torchvision==0.26.0
+transformers==5.13.0
+httpx>=0.28,<1
+Pillow>=10

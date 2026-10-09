@@ -142,10 +142,11 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
         intr = getattr(source, "intrinsics", None)
         if not intr:
             raise HTTPException(503, "깊이 카메라 내부 파라미터 없음")
-        stack, t = [], time.time() - 1e-3
+        stack, frame_times, t = [], [], time.time() - 1e-3
         for _ in range(max(1, min(frames, 15))):  # 새 프레임 여러 장의 중앙값(잡음·빈칸 줄이기)
             f = source.next_after(t)
             t = f.received_at_s
+            frame_times.append(t)
             stack.append(f.raw.astype(np.float32) * f.scale_mm)
         arr = np.stack(stack)
         valid = np.isfinite(arr) & (arr > 0)
@@ -161,15 +162,19 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
         if cfg.get("locate_mode") == "front":  # 카메라를 세워 둬서 윗면 안쪽이 잘 안 보일 때(앞면 + 상자 크기)
             result = locate.locate_box_front_any(np.nan_to_num(mm), intr, cfg.get("boxes_mm") or [cfg["box_mm"]],
                                                  tab_height_mm=cfg["tab_height_mm"], pick_roi=cfg.get("pick_roi_depth"),
+                                                 table_roi=cfg.get("table_roi_depth"),
                                                  near_far=tuple(cfg["near_far_mm"]), downsample=cfg.get("locate_downsample", 2))
-        elif cfg.get("boxes_mm"):  # top 모드 + 후보 상자: 높이·윗면 크기로 고른다(10-09 현장: 카메라가 위에서 내려다봄)
+        elif cfg.get("boxes_mm"):
             result = locate.locate_box_top_any(np.nan_to_num(mm), intr, cfg["boxes_mm"], pick_roi=cfg.get("pick_roi_depth"),
-                                               near_far=tuple(cfg["near_far_mm"]), downsample=cfg.get("locate_downsample", 2))
+                                               table_roi=cfg.get("table_roi_depth"), near_far=tuple(cfg["near_far_mm"]),
+                                               downsample=cfg.get("locate_downsample", 2))
         else:
-            result = locate.locate_box(np.nan_to_num(mm), intr, pick_roi=cfg.get("pick_roi_depth"), near_far=tuple(cfg["near_far_mm"]),
+            result = locate.locate_box(np.nan_to_num(mm), intr, pick_roi=cfg.get("pick_roi_depth"), table_roi=cfg.get("table_roi_depth"), near_far=tuple(cfg["near_far_mm"]),
                                        downsample=cfg.get("locate_downsample", 2))
         result = locate.public(result)
-        result.update(frames=len(stack), intrinsics=intr, time=time.time())
+        # 중앙값 영상의 가장 오래된 프레임 시각으로 freshness를 보수적으로 검사한다.
+        result.update(frames=len(stack), intrinsics=intr, captured_at_s=frame_times[0],
+                      last_frame_at_s=t, time=time.time())
         if save_debug:
             result["debug_depth_file"] = str(dbg_path)
         return result

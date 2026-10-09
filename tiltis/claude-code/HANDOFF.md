@@ -90,3 +90,8 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 - 추가: PAC2026_system/colab/train_lerobot_colab.ipynb (Colab Pro+ GPU에서 LeRobot 정책 학습, Drive 체크포인트, HF Hub 업로드)
 - 테스트: Colab에서 아직 실행 안 함
 - 남은 일: DATASET_REPO_ID를 실제 데이터셋으로 바꾸고 첫 실행 확인. 팀 계정 비번은 저장소에 적지 말 것
+
+## 2026-10-09 Codex RGB/Colab 및 공유 guard 복구 검토
+`codex/rgb_box/`가 실제 RGB 인식 1단계다. Colab T4에서 갈색 두 위치와 흰 상자 포함 4장 Grounding DINO+SlimSAM 검증 완료 (추론 0.387~0.446초/장, 통신 지연 제외). 현재 마스크는 전체 상자이며 다음 사용자 요구는 윗면/각도/집게 정렬이다. 기존 LeRobot 학습 노트북은 그대로 보존했다. 자세한 실행/출력/한계는 ../codex/HANDOFF.md 및 ../codex/rgb_box/README.md.
+
+c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재현했다. grasp 공통 점 계산, sequencing preflight·접근 후/재시도 후 재확인·현재 lift, Windows vision entry wrapper, 센서 captured_at_s/ROI/중복 후보 거부, 미보정 프로필 import 차단을 복구했다. 새 재시도 및 top_face 후보 선택은 보존하고 그 후보 모드도 ambiguity를 거부한다. 테스트: station 전체115, sensor 전체119, codex guard45, RGB16 pass. 후속 추가 테스트 sensor pick_area13 / station grasp_check8도 pass. 배포본을 자동 교체하지 않았으며 실제 구동 검증이 아니다. 18:20:56 handeye RMS15.91mm는 10mm 허용 기준을 넘는다. 실측 workspace와 TCP/FK/좌표 보정 확인 뒤에만 배포/실기 검증한다.

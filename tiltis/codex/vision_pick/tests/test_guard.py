@@ -322,3 +322,12 @@ def test_side_table_center_must_be_finite_before_ik(monkeypatch):
         raise AssertionError("invalid side geometry must not reach IK")
     monkeypatch.setattr(grasp.VisionPicker, "plan", forbidden)
     assert p.plan(loc)["reason"] == "invalid_side_grasp_geometry"
+
+
+def test_regrasp_after_empty_gripper_rechecks_box_before_second_close():
+    sensor = Sensor(lambda i: {"top_center_cam_mm": [20 if i <= 9 else 40, 0, 430]})
+    robot = MockRobot(speed=0, fail_on={"grasp_miss"})
+    result = Sequencer(robot, sensor, picker=picker(sensor)).run("RETRY", "test")
+    assert result["state"] == "error" and "box_moved" in result["error"], result
+    assert len([v for k, v in robot.calls if k == "move_joints"]) == 4
+    assert robot.calls.count(("gripper", "closed")) == 1 and robot.stopped

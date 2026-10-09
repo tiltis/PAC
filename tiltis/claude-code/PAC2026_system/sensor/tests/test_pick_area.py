@@ -55,6 +55,27 @@ def test_camera_looking_straight_down_has_finite_plane_basis():
     assert r["found"] and np.isfinite(r["top_center_cam_mm"]).all(), r
 
 
+def test_new_top_face_mode_refuses_two_boxes_and_honors_search_roi():
+    intr = {"fx": 300, "fy": 300, "cx": 160, "cy": 120}
+    mm = np.full((240, 320), 500.0)
+    mm[90:135, 30:75] = 450
+    mm[90:135, 210:255] = 450
+    kwargs = {"table_roi": [0, 170, 320, 240]}
+    r = locate.locate_box_top_any(mm, intr, [(70, 70, 50)], **kwargs)
+    assert not r["found"] and r["reason"] == "multiple_boxes_in_pick_area", r
+    one = locate.public(locate.locate_box_top_any(mm, intr, [(70, 70, 50)], pick_roi=[0, 0, 160, 240], **kwargs))
+    assert one["found"] and one["candidate_count"] == 1 and one["search_roi_px"] == [0, 0, 160, 240], one
+
+
+def test_new_top_face_mode_refuses_different_boxes_matching_different_models():
+    intr = {"fx": 300, "fy": 300, "cx": 160, "cy": 120}
+    mm = np.full((240, 320), 500.0)
+    mm[90:135, 30:75] = 450
+    mm[90:135, 210:255] = 410
+    r = locate.locate_box_top_any(mm, intr, [(70, 70, 50), (60, 60, 90)], table_roi=[0, 170, 320, 240])
+    assert not r["found"] and r["reason"] == "multiple_boxes_or_box_models", r
+
+
 def render_rotated_box(x, z, yaw_deg):
     """Ray-cast a known square specimen rotated on the table, independent of locate."""
     v, u = np.mgrid[0:H:2, 0:W:2]

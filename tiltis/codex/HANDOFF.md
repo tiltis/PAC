@@ -157,3 +157,17 @@ Codex `guard.py`의 정적 준비 검사는 보정/workspace가 없을 때 홈/�
 현장 상태: 17:17 저장 `poses.json`은 집기 두 종류·3면·파랑/빨강/그리퍼를 포함하고 FK 검사 없는 상태다. 이번 통합 중 Claude의 COM8 replay가 끝나고 `teach.py --handeye --points 6`로 바뀌어 좌표 보정을 수행 중임을 프로세스로 확인했다. 마지막 확인에서 handeye.json과 실측 workspace는 아직 없었다. 이후 Claude가 배포 teach.py에 점 검증 경고를 추가한 것도 별도 검토했다. 특정 로봇 z=-20~70mm를 모든 설치에 공통 적용하는 부분은 공유에 추가하지 않았으며 해당 실행 파일은 보존했다. 상자 높이 불일치/손 가림과 FK 도구 점을 확인해 보정 점을 수집해야 한다.
 
 다음: 설치 보정 완료 및 FK/관절·도구점/실측 범위·개구 폭/경로 충돌·실제 속도/통신 stop 확인 후 사용자 실기 승인. 그 뒤 기존 센서의 captured_at_s 버전과 전체 팀 폴더를 배포하고 `-PickMode vision` wrapper로 실행하여 상태 모드를 확인한다. 현재 8000은 기존 app entry이며 이 커밋으로 재시작하거나 교체하지 않았다. 작업별 집기 티칭을 반복할 필요는 없지만, 실제 자동 집기 완료·실측 학습 데이터 확보라고 주장하지 않는다.
+
+## 2026-10-09 RGB/SAM 1단계와 Colab T4 실제 검증 (Codex)
+
+사용자가 RGB 인식부터 단계별 진행 및 Colab GPU 실행을 요청했다. `rgb_box/`에 Grounding DINO tiny와 SlimSAM 검출/분리, 읽기 전용 센서 RGB 패널/사진 CLI, 명시적 CPU/CUDA 선택, 검증 코드와 출력 없는 Colab 노트북을 추가했다. 모델 revision 고정, 로봇/직렬 포트 호출 없음, `motion_enabled=false`/`robot_ready=false`. `make_colab.py`로 공유 모듈을 노트북에 포함한다. 기존 Claude LeRobot 정책 학습 노트북은 보존했다.
+
+실제 로컬 RGB 세 장에서 상자가 오른쪽→왼쪽으로 옮겨졌어도 마스크 생성. CPU DINO+SAM 16.5~18.6초/장. Colab 팀 계정의 Tesla T4에서 같은 갈색 3장과 흰 상자 1장 모두 검출/분리. GPU DINO/SAM 합계 386.6/405.2/393.9/445.9ms (워밍업 제외, CUDA 동기화; 통신 지연 제외). torch 2.11.0+cu130, Transformers 5.13.0. 실제 결과 PNG/마스크/JSON/실행 노트북/화면 증거는 `C:/Users/tilti/PAC2026_data/rgb_box/colab_T4_20261009`에 내려받고 확인했다. 영상/출력/가중치는 Git에 넣지 않음. 다운로드 후 해당 GPU 런타임 해제. 사진 검증이며 실시간 카메라 적용이나 정책 학습/로봇 구동 완료가 아니다. 현재 SAM은 상자 전체 마스크. 사용자 후속 요구는 윗면 분리→3D 방향→집게 각도 정렬이다.
+
+Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57ZZf3plskmLyPpJI (기존 계정 권한 유지).
+
+상대 코드 재검토: 새 `c2aec11` 런타임 스냅샷이 이전 위치 재확인/preflight/계산된 lift/센서 capture timestamp·strict ROI·여러 상자 거부 연결을 덮어썼다. guard 테스트 **8 fail / 36 pass**로 재현했고 이 연결을 복구했다. 새 빈 집기 재시도·top_face 후보 모드는 보존하고 재시도 후에도 닫기 직전 위치를 재확인한다. top_face 후보 모드에도 table ROI 및 여러 후보 거부를 적용했다. 보정 해시가 양쪽 모두 없을 때 import를 거부하는 처리/회귀도 복구했다. 실제 C:/PAC2026_system 배포본 교체·서버 재시작·로봇 호출 없음.
+
+최종 검증: rgb_box 16 pass (0.85s), vision_pick 45 pass / 1 warning (10.74s), station 전체 115 pass / 4 warnings (93.50s), sensor 전체 119 pass / 9 warnings (80.52s). 이후 새 top_face 모드의 2상자/모델 ambiguity 테스트 2개를 추가하여 sensor `tests/test_pick_area.py` **13 pass (10.98s)**, 보정 해시 회귀 추가 후 station `tests/test_grasp_check.py` **8 pass / 1 warning (2.66s)**. 공통 명령: 각 폴더에서 해당 .venv의 `python -m pytest tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=` (부분 재검증은 위 파일 지정). 노트북 JSON/모든 코드 셀 AST 및 git diff --check 확인.
+
+보정 감사: 17:51 handeye는 n4/RMS33.87/max54.92mm, 카메라 0.1mm 차이에 로봇 82.7mm 차이인 대응쌍이 있었다. 18:20:56 새 결과도 n5/RMS15.91/max24.76mm로 guard 10mm 기준 초과. 해당 시점 기록이며 이후 보정 변경은 다시 확인해야 한다. 카메라 측정 후 상자를 옮기는 대응쌍을 쓰지 말고 실제 TCP/FK/단위와 동일 물리점을 검증해야 한다. RGB와 Gemini2 깊이는 서로 다른 카메라여서 동일 픽셀 대입 금지. 실측 workspace/좌표 변환·실제 관절/개구/경로·stop과 사용자 승인 전 실제 자동 집기 금지.
