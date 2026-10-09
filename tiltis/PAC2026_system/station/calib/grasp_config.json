@@ -1,0 +1,8 @@
+{
+  "_note": "2026-10-09 시편: 약 70mm 흰 정육면체(손잡이 없음). 윗면에서 22mm 아래를 집는다. 상자가 바뀌면 sensor/calib/object_config.json의 box_mm도 같이 바꿀 것",
+  "tab_size_mm": [70.0, 70.0],
+  "tab_height_mm": 0.0,
+  "grasp_depth_mm": 22.0,
+  "approach_mm": 25.0,
+  "lift_mm": 25.0
+}

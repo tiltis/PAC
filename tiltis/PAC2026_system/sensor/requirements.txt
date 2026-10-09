@@ -1,0 +1,11 @@
+# 센서 PC (Windows 전용). 설치는 ../setup_sensor.bat 이 한다.
+opencv-python>=4.10
+numpy
+pyserial
+pygrabber
+pillow
+fastapi
+uvicorn
+httpx
+pytest
+# flirpy는 opencv-python-headless를 함께 설치해 cv2와 충돌하므로 설치 스크립트가 --no-deps로 따로 설치한다

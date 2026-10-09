@@ -1,0 +1,6 @@
+{
+  "_note": "2026-10-09 시편: 약 70mm 흰 정육면체(손잡이 없음). locate_mode front = 카메라를 향한 앞면 + 상자 크기로 중심 계산. 상자가 바뀌면 box_mm를 자로 재서 고친다",
+  "locate_mode": "front",
+  "box_mm": [70, 70, 70],
+  "tab_height_mm": 0
+}
