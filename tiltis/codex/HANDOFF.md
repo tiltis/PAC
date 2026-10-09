@@ -278,3 +278,21 @@ codex/vision_pick/box_overlay.py는 기존 sensor/rules.py의 CARDBOARD/GREEN �
 배포 완료: **2026-10-09 22:36:00 KST**, 사용자가 빈 그리퍼·지지된 팔을 확인하고 재연결을 승인한 뒤, 실행 파일 hash를 다시 확인해 검증한 파일 3개를 적용했다. 실행본 전체를 공유 소스로 덮지 않고 현장 `mark_processed`와 색 영역 선택 등 Claude 변경을 보존했다. 시작 후 GET status에서 `robot_mode=hardware`, `pick_mode=vision`, `state=idle`, `busy=false`, 검사면 B/C를 확인했으며 수신 프로세스 PID는 27040이었다. `/api/run`이나 새 분류 사이클은 호출하지 않았다. 백업은 `C:/Users/tilti/PAC2026_data/transfer_20261009/runtime_backup_223600`, 같은 증거 폴더에 `deployment.json`·`startup_verification.json`과 12개 오프라인 검증 결과가 있다.
 
 현장 연결/적용은 확인됐으나 새 경로의 상자 미끄러짐·바닥 접촉·주변 장애물·부하 상태의 실제 추종/속도·안정적인 놓기는 미검증이다. home은 기존 경로이며 센서 보정·현장 자세를 새 값으로 재작성하지 않았다. 실제 검사/분류 완료로 보고하지 말 것.
+
+## 2026-10-09 Codex — HOME 수직 하강 후 전진 집기와 사용자 설정
+
+사용자가 집기 시작 때 HOME에서 대각선으로 바로 접근하지 않고 먼저 수직 하강한 뒤 앞으로 들어가도록 요청했고, 적용 구간을 집기 전 접근으로 확인했다. 기존 `teach.py`는 별도 COM 연결을 만들므로 실행 중인 8000의 로봇 소유 객체를 재사용한다. 새 경로는 앞서 배포한 검사 후 상승/분류/놓기와 다른 기능이다.
+
+변경: `station/home_approach.py`, `pick_path_api.py`, `web/pick_path.html`, app 등록과 기존 검사 화면 링크, `sequencer.py`, `test_home_approach.py`·`test_pick_path_api.py`·`test_pick_path_web.py`·`test_home_path_sequence.py`. `/pick-path`에서 기본 `legacy`와 `home_descend_forward`를 선택하고, 비전이 계산한 집기 높이에 −10~+30 mm를 더할 수 있다. 하강 거리 입력값이 아니다. `station/calib/pick_path.json` 저장은 성공한 미리보기 token과 설정/자세/보정 지문 일치, 120초 이내 유효성을 요구한다. 미리보기나 적용 API 자체에 이동/토크 조작은 없다.
+
+API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/pick-path/settings`, `POST /api/pick-path/home`. HOME 기록은 기존 스테이션 로봇의 현재 관절 읽기만 수행하며 모델 관절 한계·TCP 책상 여유를 확인한다. poses 원본 변경 감지·백업·원자적 교체로 다른 자세를 보존한다. 설정 mutex를 추가해 검사와 설정을 동시에 실행하지 못하게 한다. 별도 COM8 연결·장비 이동·토크 해제 API를 만들지 않았다.
+
+최종 검토에서 HOME 재저장 뒤 이전 경로 승인이 재사용될 수 있는 문제와 별도 Codex 진입점의 picker 연결 차이를 수정했다. 검증된 geometry 지문 `accepted_geometry_sha256`을 설정에 영구 저장하고, HOME 기록 전에 기존 승인을 무효화해 서버 재시작 후에도 새 미리보기·적용 전에는 실행하지 못한다. 실행 설정과 UI는 `needs_preview`를 표시하며 기존 legacy 방식으로 조용히 돌아가지 않는다. `PickPathService.bind_picker`와 `codex/vision_pick/station_app.py` 연결을 추가해 Guarded 진입점에서도 미리보기/설정과 실제 실행이 같은 picker를 사용한다.
+
+계획기는 기존 IK/FK를 사용해 HOME X/Y·전체 방향을 유지하며 접근 높이까지 내린 뒤, 같은 높이의 직선을 따라 접근점 방향으로 보간한다. 관절 보간 표본의 관절 한계, 바닥 여유, 수직·수평 오차와 단조 진행을 검사한다. 마지막 기존 approach→grasp도 수평/바닥 여유를 확인한다. 도달 불가 경로를 대각선/임의 방향으로 대체하지 않는다. sequencer는 초기 HOME 이동 전에 설정을 확인하고, 첫 하강 전 실제 HOME 도달과 각 단계 후 도달을 strict settle/FK로 검사한다. 최초/재집기 모두 새 경로를 사용하며, 실패 시 정지하고 그리퍼를 닫지 않는다. 기존 dry-run 종료·held/release·분류 경로는 유지하며 `home_path_plans`·`home_path_checks`에 기록한다.
+
+실제 테스트: `PAC2026_system`에서 `.venv-station` Python `-m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=` → **273 passed, 4 warnings (126.90s)**. 이후 홈 경유점 명령 실패 2개를 추가하고 `station/tests/test_home_path_sequence.py station/tests/test_transfer_sequence.py station/tests/test_sequencer.py` → **138 passed, 1 warning (10.30s)**. 최종 지문 무효화/재시작/실행 picker 연결 수정 후 `station/tests/test_home_approach.py station/tests/test_home_path_sequence.py station/tests/test_pick_path_api.py station/tests/test_pick_path_web.py` → **77 passed (6.73s)**: 경로 19개, 순서 37개, API 19개, UI 2개다. 앞선 UI 부분 2개(3.04s)·비전 포함 순서 152개도 통과했으나 범위가 겹치므로 숫자를 합산하거나 최종 전체 실행으로 주장하지 않는다.
+
+현장 제약: 저장 HOME `wrist_roll` −163.38°가 모델 하한 −157.21° 밖이므로 새 경로는 활성화하지 않았다. 기존 실행 모드는 유지하며 정상 HOME 또는 실제 로봇/모델 보정 일치를 확인해야 한다. 한계를 넓히거나 각도를 임의 감아 통과시키지 않았다. 직전 실제 기록 R221924(22:38:35~22:39:08)는 두 번의 집기 모두 `nothing_held`로 검사/분류 전에 중단됐으며, 이번 새 HOME 경로의 실행 결과가 아니다.
+
+배포 준비만 진행 중이다. Claude가 바꾼 실행본의 글꼴/새 검사 화면, `place_spot`, 색 영역 선택, `mark_processed`를 보존한 staging을 준비한다. 이 기록 시점에는 HOME 기능의 실행본 교체·서버 재시작·새 검사 호출을 하지 않았다. 사용자의 빈 팔 지지·재연결 승인 대기이며 실제 경로/충돌/추종/파지 성공은 미검증이다. 이전 22:36 transfer 배포 완료 기록과 이번 HOME 기능 상태를 구별할 것.

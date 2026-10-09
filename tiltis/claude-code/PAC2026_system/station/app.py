@@ -80,6 +80,8 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
     app = FastAPI(title="station", lifespan=lifespan)
     app.state.sequencer = seq
     app.state.store = store
+    from pick_path_api import register_pick_path
+    register_pick_path(app, seq, BASE_DIR)
 
     @app.get("/")
     def index():

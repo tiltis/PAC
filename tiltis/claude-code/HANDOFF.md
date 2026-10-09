@@ -191,3 +191,17 @@ codex/vision_pick/box_overlay.py는 기존 sensor/rules.py의 CARDBOARD/GREEN �
 동시 변경: 배포 직전 hash 검사가 최신 Claude 실행본 변경을 찾아 프로세스를 멈추기 전에 최초 배포를 취소했다. 새 `place_pose_from_zones`·`_place_pose`의 `/zones` 기반 색 구역 선택을 다시 보존해, 실행본에서는 `self._place_pose(bin_name)`이 선택한 자세를 transfer planner에 전달한다. `mark_processed`도 유지한다. 위 12개 검증은 이 재통합본으로 실행했다. 공유 저장소는 기존 routing을 유지하며 Claude의 해당 변경 push 후 후속 통합이 필요하다. 현재 저장소와 실행본이 완전히 같지는 않다.
 
 배포 완료: **2026-10-09 22:36:00 KST**. 사용자가 빈 그리퍼·지지된 팔 상태에서 재연결을 승인한 뒤, 변경 hash를 재확인한 파일 3개를 적용했다. GET status는 `robot_mode=hardware`, `pick_mode=vision`, `state=idle`, `busy=false`, 검사면 B/C이며 수신 PID는 27040이었다. `/api/run` 또는 새 분류 사이클 호출은 없다. 백업은 `C:/Users/tilti/PAC2026_data/transfer_20261009/runtime_backup_223600`, 증거는 같은 상위 폴더의 `deployment.json`·`startup_verification.json`과 12개 오프라인 검증 결과다. 새 실제 분류 사이클·바닥 긁힘 해소·물리 충돌·안정적인 놓기 완료를 주장하지 않는다. [station README](PAC2026_system/station/README.md)와 [Codex 인계](../codex/HANDOFF.md)에 경로 계약과 남은 검증을 기록했다.
+
+## 2026-10-09 Codex — 집기 전 HOME 하강/전진 경로 설정
+
+사용자 요청은 집기 전 `HOME → 수직 하강 → 같은 높이에서 전진 → 집기`이며 검사 후 분류 경로와 구별한다. `station/home_approach.py`·`pick_path_api.py`·`web/pick_path.html`, app 등록/검사 화면 링크, sequencer와 관련 테스트를 추가했다. 기존 Claude 비전 집기/판정을 감싸고, 최초/재집기에만 선택적으로 경로를 적용한다. 실행본의 새 글꼴/검사 UI, `place_spot`·색 구역 선택·`mark_processed`는 staging에 보존한다.
+
+`/pick-path`는 방식 선택과 비전 집기 높이 보정 −10~+30 mm를 제공한다. 이 값은 HOME 하강 거리 자체가 아니다. 기본값은 기존 `legacy`, 새 방식 `home_descend_forward`는 경로 미리보기 성공 후 같은 설정과 보정 지문의 120초 이내 token으로 적용해야 한다. 저장 파일은 `station/calib/pick_path.json`. API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/pick-path/settings`, `POST /api/pick-path/home`이다. API에는 이동/토크 기능이 없다. HOME 저장은 기존 서버 로봇 객체에서 관절을 읽고 한계/책상 여유를 검증한 뒤 기존 poses 백업·원자적 교체를 수행한다. 두 번째 COM8 연결을 열지 않으며 검사/설정 동시 실행을 차단한다.
+
+최종 검토 수정: 검증된 자세/보정 지문 `accepted_geometry_sha256`을 영구 저장한다. HOME 재저장 시 이전 승인을 먼저 무효화하고 서버 재시작 후에도 `needs_preview=true`로 새 경로 실행을 차단한다. 새 미리보기·적용이 필요하며 자동 legacy 우회는 없다. `PickPathService.bind_picker` 및 `codex/vision_pick/station_app.py`를 연결해 별도 Guarded 진입점도 설정에서 검증하는 picker와 실제 실행 picker를 공유한다.
+
+HOME X/Y·방향을 유지한 하강과 같은 높이의 전진/방향 보간, 마지막 approach→grasp를 기존 IK/FK로 검증한다. 관절 한계/보간 경로/바닥 여유 실패 시 대각선 우회 없이 중단한다. 초기 HOME 이동 전 설정 검증, 하강 전 실제 HOME 도달, 단계별 strict settle/FK 확인을 추가했다. 초기·재집기/중단/속도 시간 제한·기존 held/release 훅을 보존하며 `home_path_plans`·`home_path_checks`를 기록한다.
+
+테스트: `.venv-station` Python으로 `-m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=` → **273 passed, 4 warnings (126.90s)**. 이후 명령 실패 2개 추가 후 `test_home_path_sequence.py`·`test_transfer_sequence.py`·`test_sequencer.py` 부분 **138 passed, 1 warning (10.30s)**. 마지막 지문/재시작/picker 연결 수정 후 `test_home_approach.py`·`test_home_path_sequence.py`·`test_pick_path_api.py`·`test_pick_path_web.py` 묶음 **77 passed (6.73s)**: 경로 19개·순서 37개·API 19개·UI 2개. 앞선 전체 실행 이후의 부분 검증이고 범위가 중복돼 합산하지 않는다.
+
+현재 HOME 손목 회전 −163.38°는 모델 하한 −157.21° 밖이라 새 경로 활성화가 차단된다. 실제 HOME 또는 모델/보정 일치를 먼저 확인하며 가짜 관절 한계/각도 치환으로 통과시키지 않았다. 이 HOME 기능은 아직 실행본 적용/서버 재시작 전이고, 사용자의 빈 팔 지지·재연결 승인을 기다린다. 이전 22:36 분류 경로 배포와 혼동하지 말 것. 최근 R221924의 두 번 `nothing_held`는 기존 집기 단계 실패이고 새 경로 실기 결과가 아니다. 물리 이동·충돌·추종·파지 성공은 검증하지 않았다.

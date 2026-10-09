@@ -23,7 +23,11 @@ preview_picker = GuardedVisionPicker(
 if base is not None:
     preview_picker.dry_stage = getattr(base, "dry_stage", "approach")
     preview_picker.dry_hold_s = getattr(base, "dry_hold_s", 8.0)
-    seq.picker = preview_picker
+    path_service = getattr(app.state, "pick_path", None)
+    if path_service is not None:
+        path_service.bind_picker(preview_picker)
+    else:
+        seq.picker = preview_picker
 
 
 @app.get("/api/pick/readiness")

@@ -16,6 +16,7 @@ DEFAULT_DURATIONS = {  # 이동별 기본 소요 시간(초). 현장에서 조�
     "home": 2.0, "pick_approach": 2.0, "pick": 1.5, "lift": 1.5,
     "face_A": 3.0, "face_B": 3.0, "face_C": 3.5, "bin_ok": 4.0, "bin_human": 4.0,  # 10-09 현장: 놓기 자세는 천천히(바닥에 '팍' 내려놓던 것)
     "vision_approach": 2.5, "vision_grasp": 1.5, "vision_lift": 1.5,
+    "home_descend": 3.0, "home_forward": 3.0,
     "transfer_lift": 2.0, "transfer_travel": 4.0,
     "transfer_lower": 3.0, "transfer_retract": 3.0,
     "bin_ok_up": 2.0, "bin_human_up": 2.0,
@@ -123,6 +124,7 @@ class Sequencer:
         self.settle_timeout_s = settle_timeout_s
         self._lock = threading.Lock()
         self._busy = False
+        self._configuration_active = False
         self._paused = False
         self._abort = False
         self._cur: Optional[dict] = None
@@ -177,8 +179,8 @@ class Sequencer:
     # --- 내부 ---
     def _begin(self, specimen_id: str, session: str, box_type: str = "") -> None:
         with self._lock:
-            if self._busy:
-                raise BusyError("이미 실행 중")
+            if self._busy or self._configuration_active:
+                raise BusyError("이미 실행 중이거나 경로 설정 중")
             self._busy = True
             self._abort = False
             self._vision_lift = None
@@ -245,6 +247,30 @@ class Sequencer:
     def _move_joints(self, name: str, target: dict) -> None:
         self._step(f"move:{name}", lambda: self.robot.move_joints(target, self.durations.get(name, 2.0)))
 
+    def _validated_joint_path(self, plan, stages, prefix: str, label: str) -> dict:
+        """마지막 경로까지 이동 전에 확인하고 기록 가능한 별도 사본을 만든다."""
+        if not isinstance(plan, dict):
+            raise SequenceError(f"{label} 계획 형식 오류")
+        arm_keys = set(JOINT_KEYS) - {"gripper.pos"}
+        for stage in stages:
+            targets = plan.get(stage)
+            if not isinstance(targets, list) or not targets:
+                raise SequenceError(f"{label} 계획의 {stage} 경로가 비어 있거나 잘못됨")
+            for target in targets:
+                if not isinstance(target, dict) or set(target) != arm_keys:
+                    raise SequenceError(f"{label} 계획의 {stage} 관절 목록 오류")
+                if any(isinstance(value, bool) or not isinstance(value, Real)
+                       or not math.isfinite(value) for value in target.values()):
+                    raise SequenceError(f"{label} 계획의 {stage} 관절값 오류")
+            duration = self.durations[f"{prefix}_{stage}"]
+            if (isinstance(duration, bool) or not isinstance(duration, Real)
+                    or not math.isfinite(duration) or duration <= 0):
+                raise SequenceError(f"{label} {stage} 시간은 양의 유한 숫자여야 함")
+        try:
+            return json.loads(json.dumps(plan, allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise SequenceError(f"{label} 계획 기록 형식 오류: {exc}") from exc
+
     def _prepare_transfer(self, pose: str):
         """전체 놓기 경로를 이동 전에 확인한다. planner가 없는 기존 어댑터는 가르친 자세를 사용한다."""
         planner = getattr(self.robot, "plan_transfer", None)
@@ -255,38 +281,18 @@ class Sequencer:
 
         def prepare():
             plan = planner(self._pose_name(pose))
-            if not isinstance(plan, dict):
-                raise SequenceError("분류 이동 계획 형식 오류")
-            arm_keys = set(JOINT_KEYS) - {"gripper.pos"}
-            for stage in ("lift", "travel", "lower", "retract"):
-                targets = plan.get(stage)
-                if not isinstance(targets, list) or not targets:
-                    raise SequenceError(f"분류 이동 계획의 {stage} 경로가 비어 있거나 잘못됨")
-                for target in targets:
-                    if not isinstance(target, dict) or set(target) != arm_keys:
-                        raise SequenceError(f"분류 이동 계획의 {stage} 관절 목록 오류")
-                    if any(isinstance(value, bool) or not isinstance(value, Real)
-                           or not math.isfinite(value) for value in target.values()):
-                        raise SequenceError(f"분류 이동 계획의 {stage} 관절값 오류")
-                duration = self.durations[f"transfer_{stage}"]
-                if (isinstance(duration, bool) or not isinstance(duration, Real)
-                        or not math.isfinite(duration) or duration <= 0):
-                    raise SequenceError(f"분류 이동 {stage} 시간은 양의 유한 숫자여야 함")
-            # 실행 결과/상태 API에 그대로 기록 가능한 계획만 허용한다. 뒤쪽 경로 오류도 이동 전에 거부한다.
-            try:
-                return json.loads(json.dumps(plan, allow_nan=False))
-            except (TypeError, ValueError) as exc:
-                raise SequenceError(f"분류 이동 계획 기록 형식 오류: {exc}") from exc
+            return self._validated_joint_path(plan, ("lift", "travel", "lower", "retract"), "transfer", "분류 이동")
 
         plan = self._step("transfer:plan", prepare)
         with self._lock:
             self._cur["transfer_plan"] = copy.deepcopy(plan)
         return plan
 
-    def _transfer_stage(self, stage: str, plan: dict) -> None:
+    def _transfer_stage(self, stage: str, plan: dict, *, prefix: str = "transfer") -> None:
         """한 단계의 작은 경유점을 순서대로 실행하고 실제 목표 도달을 확인한다."""
         targets = plan[stage]
-        name = f"transfer_{stage}"
+        name = f"{prefix}_{stage}"
+        label = "홈 진입" if prefix == "home" else "분류 이동"
         duration = self.durations[name] / len(targets)
 
         def move():
@@ -296,26 +302,78 @@ class Sequencer:
                 seconds = rate_time(target, duration) if callable(rate_time) else duration
                 if (isinstance(seconds, bool) or not isinstance(seconds, Real)
                         or not math.isfinite(seconds) or seconds < duration):
-                    raise SequenceError("분류 이동 속도 제한의 시간 계산 오류")
+                    raise SequenceError(f"{label} 속도 제한의 시간 계산 오류")
                 self.robot.move_joints(target, seconds)
 
         self._step(f"move:{name}", move)
+        self._check_path_arrival(stage, plan, prefix=prefix)
+
+    def _check_path_arrival(self, stage: str, plan: dict, *, prefix: str = "transfer") -> None:
+        name = stage if stage == "home_start" else f"{prefix}_{stage}"
+        label = "홈 진입" if prefix == "home" else "분류 이동"
 
         def settle():
             # 촬영 자세의 is_still 예외는 쓰지 않는다. 낮은 위치에서 정지만 했어도 다음 이동은 금지한다.
             if not self.robot.wait_settled(self.settle_timeout_s):
-                raise SequenceError(f"분류 이동 {stage} 목표 도달 확인 실패")
+                raise SequenceError(f"{label} {stage} 목표 도달 확인 실패")
 
         self._step(f"settle:{name}", settle)
         verifier = getattr(self.robot, "verify_transfer_stage", None)
         if verifier is not None:
-            check = self._step(f"transfer:verify_{stage}", lambda: verifier(stage, plan))
+            check = self._step(f"{prefix}:verify_{stage}", lambda: verifier(stage, plan))
             if not isinstance(check, dict):
-                raise SequenceError(f"분류 이동 {stage} 실제 위치 확인 응답 오류")
+                raise SequenceError(f"{label} {stage} 실제 위치 확인 응답 오류")
             with self._lock:
-                self._cur.setdefault("transfer_checks", []).append({"stage": stage, "result": copy.deepcopy(check)})
+                check_key = "home_path_checks" if prefix == "home" else "transfer_checks"
+                self._cur.setdefault(check_key, []).append({"stage": stage, "result": copy.deepcopy(check)})
             if check.get("ok") is not True:
-                raise SequenceError(f"분류 이동 {stage} 실제 위치 확인 실패: {check.get('reason')}")
+                raise SequenceError(f"{label} {stage} 실제 위치 확인 실패: {check.get('reason')}")
+
+    def _home_joints(self):
+        poses = getattr(self.robot, "poses", None) or {}
+        return copy.deepcopy((poses.get("joints") or {}).get(self._pose_name("home")))
+
+    def _vision_approach(self, grasp_plan: dict) -> None:
+        """선택적 홈 하강/전진 경로를 초기 집기와 재집기 모두에 적용한다."""
+        planner = getattr(self.picker, "plan_home_path", None)
+        if planner is None:
+            self._move_joints("vision_approach", grasp_plan["approach"])
+            return
+        if not callable(planner):
+            raise SequenceError("홈 진입 계획기가 호출 가능한 함수가 아님")
+
+        def prepare():
+            home = self._home_joints()
+            plan = planner(grasp_plan, home)
+            if plan is None:
+                return None
+            if not isinstance(home, dict):
+                raise SequenceError("홈 진입의 가르친 시작 자세가 없음")
+            plan = self._validated_joint_path(plan, ("descend", "forward"), "home", "홈 진입")
+            arm_home = {key: value for key, value in home.items() if key != "gripper.pos"}
+            if set(arm_home) != set(JOINT_KEYS) - {"gripper.pos"} or any(
+                    isinstance(value, bool) or not isinstance(value, Real)
+                    or not math.isfinite(value) for value in arm_home.values()):
+                raise SequenceError("홈 진입의 시작 관절값이 유효하지 않음")
+            plan["home_start"] = [arm_home]
+            metadata = plan.get("metadata")
+            floor = metadata.get("transit_floor_m") if isinstance(metadata, dict) else None
+            if isinstance(floor, bool) or not isinstance(floor, Real) or not math.isfinite(floor):
+                raise SequenceError("홈 진입 계획의 최소 높이 정보가 유효하지 않음")
+            verifier = getattr(self.robot, "verify_transfer_stage", None)
+            if not getattr(self.robot, "is_mock", False) and not callable(verifier):
+                raise SequenceError("홈 진입에 실제 관절 위치 확인 기능이 필요함")
+            return plan
+
+        plan = self._step("home:plan", prepare)
+        if plan is None:
+            self._move_joints("vision_approach", grasp_plan["approach"])
+            return
+        with self._lock:
+            self._cur.setdefault("home_path_plans", []).append(copy.deepcopy(plan))
+        self._check_path_arrival("home_start", plan, prefix="home")
+        self._transfer_stage("descend", plan, prefix="home")
+        self._transfer_stage("forward", plan, prefix="home")
 
     def _legacy_retract(self, pose: str) -> None:
         """기존 현장 bin_*_up 자세가 있으면 놓은 상자 위로 먼저 빠져나온다."""
@@ -360,7 +418,7 @@ class Sequencer:
         if not plan.get("ok"):
             raise SequenceError(f"비전 집기 계획 실패: {plan.get('reason')}")
         self._vision_lift = dict(plan["lift"])
-        self._move_joints("vision_approach", plan["approach"])
+        self._vision_approach(plan)
         stage = getattr(self.picker, "dry_stage", "approach")
         if self.picker.dry_run and stage == "approach":
             self._step("vision:dry_hold", lambda: time.sleep(float(getattr(self.picker, "dry_hold_s", 8.0))))  # 접근점에서 멈춰 눈으로 확인할 시간
@@ -409,7 +467,7 @@ class Sequencer:
             plan = plan2
             loc = loc2
             self._vision_lift = dict(plan["lift"])
-            self._move_joints("vision_approach", plan["approach"])
+            self._vision_approach(plan)
             self._verify_before_grasp(loc2)
             self._move_joints("vision_grasp", plan["grasp"])
             self._grip("closed")
@@ -552,6 +610,12 @@ class Sequencer:
             check = self._step("vision:ready", ready)
             if not check.get("ok"):
                 raise SequenceError(f"비전 집기 준비 미완료: {check.get('reason')}")
+        home_ready = getattr(self.picker, "validate_home_path_start", None)
+        if home_ready is not None:
+            check = self._step("home:ready", lambda: home_ready(self._home_joints()))
+            if check is not None and (not isinstance(check, dict) or check.get("ok") is not True):
+                reason = check.get("reason") if isinstance(check, dict) else "응답 형식 오류"
+                raise SequenceError(f"홈 진입 준비 미완료: {reason}")
         self._move("home")
         self._grip("open")
         self._pick()

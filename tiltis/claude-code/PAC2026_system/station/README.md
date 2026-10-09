@@ -14,6 +14,29 @@ SO-101 로봇 팔이 지그에서 포장을 집어 설정된 검사면(A·B 또�
 
 `GET /api/status`는 `zones`, 결정된 `destination`, `robot_mode`를 표시한다. `destination`은 목표이며 `placed_bin`·`routing_status`가 배치 진행 상태다. `mock`의 완료는 실제 로봇 이동이 아니다. 새 목적지 메타데이터는 상태 응답용이며 DB/CSV는 기존 분류 키를 사용한다. 실기 연결·경로·관절 한계·충돌·실제 속도 및 정지 검증과 사용자 승인 후에 실제로 움직인다.
 
+## HOME에서 내려온 뒤 앞으로 집기
+
+`/pick-path`는 집기 전 접근 순서와 높이를 설정하는 화면이다. 기본값 `legacy`는 기존 집기를 유지한다. `home_descend_forward`는 **HOME의 X/Y·방향을 유지한 수직 하강 → 같은 높이에서 상자 쪽으로 전진 → 기존 마지막 집기 접근 → 집게 닫기**로 동작한다. 최초 집기와 빈손 재집기에 모두 적용하며, 뒤의 검사·분류 경로는 별도다.
+
+집기 높이 보정은 카메라로 계산한 집기 높이에 **−10~+30 mm**를 더한다. HOME에서 내려오는 거리 자체를 입력하는 값이 아니다. 화면에서 경로 미리보기를 통과한 다음 설정 적용을 누르면 다음 검사부터 사용한다. 설정은 `station/calib/pick_path.json`에 저장된다. 새 방식은 120초 이내의 미리보기 확인값, 같은 높이 설정, 동일한 자세·보정 정보가 모두 맞아야 저장할 수 있다. 설정 중 검사 시작과 검사 중 설정 변경은 서로 차단된다.
+
+적용 시 검증한 자세·보정 정보의 지문(`accepted_geometry_sha256`)도 저장한다. HOME을 다시 저장하거나 해당 정보가 바뀌면 새 경로 실행이 차단되고 `needs_preview=true`로 표시된다. 서버를 재시작해도 차단을 유지하며, 새 미리보기·적용을 마쳐야 다시 사용할 수 있다. 자동으로 기존 경로로 바꿔 실행하지 않는다. 별도 Codex guard 진입점도 같은 `bind_picker` 연결을 사용해 설정에서 검증하는 picker와 실제 실행 picker를 일치시킨다.
+
+| API | 역할 |
+|---|---|
+| `GET /api/pick-path/settings` | 적용 방식·높이·저장 HOME의 관절 범위와 TCP 위치 확인 |
+| `POST /api/pick-path/preview` | 현재 상자를 보고 경로 계산, 장비 이동 없음 |
+| `PUT /api/pick-path/settings` | 검증된 설정 저장, 장비 이동 없음 |
+| `POST /api/pick-path/home` | 현재 관절을 기존 스테이션 연결로 읽어 HOME 저장 |
+
+이 화면과 API는 팔을 이동시키거나 토크를 변경하지 않는다. HOME 저장은 원본 자세 파일을 백업한 뒤 유효한 현재 관절과 책상 여유를 확인해 원자적으로 교체하며, 다른 자세와 보정은 보존한다. 별도 `teach.py`나 두 번째 COM8 연결을 열지 않는다.
+
+`home_approach.py`가 하강·전진 전체 구간의 IK, 관절 한계, 보간 중 수직/수평 경로·방향과 바닥 여유를 확인한다. 수직 하강에서는 HOME 방향을 유지하고 전진하며 접근점 방향으로 보간한다. 도달 불가 시 대각선 이동이나 자유 회전으로 대체하지 않는다. sequencer는 HOME 이동 전 설정을 확인하고, 하강 전 실제 HOME 도달·하강/전진 후 도달을 엄격한 안정화와 관절 FK로 확인한다. `home_path_plans`·`home_path_checks`에 기록한다. 계산 경로 그림은 물리적 장애물·실제 추종을 검증한 영상이 아니다.
+
+현재 저장 HOME의 `wrist_roll` −163.38°가 모델 하한 −157.21° 밖이어서 새 방식 활성화는 차단된다. 정상 범위의 HOME 또는 실제 장비와 모델/보정의 일치 여부를 확인해야 하며, 한계를 넓히거나 각도를 임의 치환해 통과시키지 않았다. **이번 HOME 설정 기능은 아직 실행본에 적용하지 않았고**, 빈 팔을 지지한 상태에서 서버 재시작 승인을 기다리는 중이다. 새 경로의 실기 이동은 검증하지 않았다.
+
+검증은 station 전체 **273 passed, 4 warnings (126.90s)** 이후 명령 실패 회귀 2개를 추가해 HOME/분류/기존 순서 부분 **138 passed, 1 warning (10.30s)**를 재실행했다. 최종 HOME 관련 4개 파일(`test_home_approach.py`, `test_home_path_sequence.py`, `test_pick_path_api.py`, `test_pick_path_web.py`)은 **77 passed (6.73s)**: 경로 19개·순서 37개·API 19개·UI 2개다. HOME 변경 후 재시작 시 차단 유지와 실제 실행 picker 연결 회귀를 포함한다. 앞선 전체 실행 이후의 부분 검증이며 범위가 겹치므로 숫자를 합산하지 않는다.
+
 ## 검사 후 들어 올려 옮기기
 
 `So101Robot`은 마지막 검사 자세에서 바로 낮은 분류 자세로 이동하지 않고, **제자리 상승 → 높은 위치에서 옆으로 이동 → 내려놓을 위치까지 하강 → 그리퍼 열기 → 수직 상승 → home** 순서로 실행한다. 기존 검사·파랑/빨강 판정과 가르친 놓기 자세는 재사용한다.
@@ -39,6 +62,8 @@ python -m pytest station/tests/test_clearance_transfer.py station/tests/test_tra
 |---|---|
 | `robot.py` | `RobotBase`, `MockRobot`, `So101Robot`(LeRobot) |
 | `clearance_transfer.py` | 현장 자세·상자 치수·턱 오프셋을 이용한 상승/분류/하강/복귀 경로 검증 |
+| `home_approach.py` | HOME 수직 하강·수평 전진의 전체 IK/관절/경로 검증 |
+| `pick_path_api.py`, `web/pick_path.html` | 집기 경로·높이 설정, 이동 없는 미리보기, 기존 연결을 통한 HOME 기록 |
 | `teach.py` | 실기 자세 티칭 / 재생 확인 |
 | `sensor_client.py` | 센서 서버 HTTP 클라이언트(오류는 `status="error"`로 변환) |
 | `mock_sensor.py` | 센서 서버 모의 구현(포트 8001) |
