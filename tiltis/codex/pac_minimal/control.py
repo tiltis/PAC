@@ -19,8 +19,10 @@ class Controller:
 
     def stop(self, reason='manual_stop'):
         with self.lock:
+            was_enabled = self.enabled
             self.enabled = False
-            self.reason = reason
+            if was_enabled or self.reason == 'manual_enable_required':
+                self.reason = reason
 
     def update(self, wrist, count, captured_at):
         with self.lock:

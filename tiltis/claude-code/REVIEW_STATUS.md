@@ -14,6 +14,12 @@
 
 후속 `auth status`: loggedIn=true, authMethod=claude.ai. 짧은 실제 요청에서도 `OK` 응답과 종료 코드 0을 확인하여 API 사용 복구를 검증했다. 인증 토큰과 계정 정보는 Git에 저장하지 않는다. 교차 코드 리뷰를 다시 실행했다.
 
+## 교차 리뷰 완료
+
+읽기 전용 종합 리뷰가 종료 코드 0, is_error=false, 허가 거절 0으로 완료됐다. [리뷰 원문](REVIEW_CODEX_2026-10-09.md)을 보관했다. 긴 첫 요청을 중단한 뒤 진행 로그를 보관하는 방식으로 재실행하여 완료했다. 추가로 계획했던 축소 리뷰는 종합 리뷰 완료 후 필요 없어 실행하지 않았다.
+
+Codex는 [HANDOFF](../codex/HANDOFF.md)에 지적별 재현·반영/미반영 근거와 실제 테스트를 기록했다. 최종 unittest 56개, 일반 및 -O replay 각 120프레임이 통과했다. Claude 자체는 테스트와 실기 실행을 하지 않았다.
+
 ## 재개
 
 이 노트북의 Claude 실행 파일은 npm 폴더에 있으며 현재 쉘 PATH에는 없다. 아래처럼 로그인한 뒤 이 폴더에서 [REVIEW_PROMPT.md](REVIEW_PROMPT.md)를 전달한다. 다른 PC에서는 설치된 Claude 실행 경로로 바꾼다.

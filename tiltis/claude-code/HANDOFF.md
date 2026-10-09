@@ -15,6 +15,12 @@
 
 ## 다음 작업
 
-Claude Code 2.1.263 첫 리뷰는 OAuth 인증 만료로 실패했다. 이후 재인증과 실제 API 응답을 확인했고, 읽기 전용 교차 리뷰를 다시 실행했다. [실행 기록](REVIEW_STATUS.md)에 인증 복구를 남겼다. 완료된 리뷰 결과와 Codex 반영 근거를 기록한다.
+Claude Code 2.1.263 첫 리뷰는 OAuth 인증 만료로 실패했다. 이후 재인증과 실제 API 응답을 확인했고, 읽기 전용 교차 리뷰가 정상 종료했다. [실행 기록](REVIEW_STATUS.md), [리뷰 원문](REVIEW_CODEX_2026-10-09.md), [Codex 반영 근거](../codex/HANDOFF.md)에 결과를 남겼다.
 
 Codex의 [HANDOFF](../codex/HANDOFF.md), `pac_minimal/robot_bridge.py`, `so101_backend.py`, 관련 테스트를 검토한다. 손목과 검사 흐름은 별도로 실행하고, 적합한 SDK·URDF·정지 개선만 근거를 기록하며 재사용한다. 실제 연결은 사용자 모델·포트 정보와 현장 검증 후 진행한다.
+
+## 다음 Claude 작업의 출발점
+
+Codex는 정지 원인 보존, 거부 명령 로그, SDK 카메라 설정 차단, arm 직후 0 dt 처리와 최적화 모드 replay를 수정했다. 56개 unittest 및 일반/-O 120프레임 재생 통과를 직접 기록했다. 다음 작업은 이 변경과 반영 표를 먼저 읽고 이어서 한다.
+
+station 쪽에는 stop의 hold 예외 무시, `_lock` 미사용, 동작 중 `_halt`/sequencer 취소 전달 여부가 검토 후보로 남았다. 실기 연결 전에 별도의 재현 테스트와 중단 계약을 정하고 수정해야 한다. station IK는 접근축/yaw 계약이므로 전체 자세를 유지하는 손목 backend에 그대로 교체하지 않는다. 기존 88개 시스템 소스는 이번 손목 수정에서 변경하지 않았다.

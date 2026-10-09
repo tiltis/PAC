@@ -30,6 +30,23 @@ class ControlTests(unittest.TestCase):
         self.c.update(None,0,self.now)
         self.assertFalse(self.c.enable())
 
+    def test_hand_stop_reason_survives_stale_api_poll(self):
+        self.c.update(None,0,self.now)
+        self.now += .3
+        state = self.c.state()
+        self.assertEqual(state['reason'], 'single_hand_required')
+        self.assertFalse(state['input_valid'])
+        self.assertFalse(state['motion_enabled'])
+        self.c.update((.5,.5),1,self.now)
+        self.assertEqual(self.c.state()['reason'], 'single_hand_required')
+        self.assertTrue(self.c.enable())
+        self.assertEqual(self.c.state()['reason'], 'enabled')
+
+    def test_camera_stop_reason_survives_stale_api_poll(self):
+        self.c.stop('camera_stopped')
+        self.now += .3
+        self.assertEqual(self.c.state()['reason'], 'camera_stopped')
+
     def test_area(self):
         self.c.update((.99,.5),1,self.now)
         self.assertFalse(self.c.state()['motion_enabled'])

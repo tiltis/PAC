@@ -89,6 +89,12 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'degree'):
             So101Backend(self.sdk,self.ik,self.backend.limits,self.backend.speeds,lambda *args:True)
 
+    def test_camera_config_rejected_before_control(self):
+        self.sdk.config = SimpleNamespace(use_degrees=True,cameras={'rgb':object()})
+        with self.assertRaisesRegex(ValueError,'camera'):
+            So101Backend(self.sdk,self.ik,self.backend.limits,self.backend.speeds,lambda *args:True)
+        self.assertEqual(self.sdk.sent, [])
+
     def test_existing_sdk_adapter_through_bridge_and_watchdog(self):
         # This uses fake SDK and fake kinematics; it never opens hardware ports.
         w = Workspace(x=(.25,.35),y=(-.02,.02),z=.2,profile='commissioned')

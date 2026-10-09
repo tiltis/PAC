@@ -26,6 +26,8 @@ class So101Backend:
             raise ValueError('URDF joint order must match the five arm joints; exclude gripper')
         if not robot.config.use_degrees:
             raise ValueError('Arm degree units required')
+        if getattr(robot.config, 'cameras', None):
+            raise ValueError('Wrist backend requires a joint-only robot config without cameras')
         if getattr(robot.config, 'max_relative_target', None) is not None:
             raise ValueError('SDK clipping would alter the validated joint path; use bridge joint-step limits')
         for name in ARM_JOINTS:

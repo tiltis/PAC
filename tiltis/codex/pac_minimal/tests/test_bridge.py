@@ -40,6 +40,10 @@ class BridgeTests(unittest.TestCase):
     def test_false_holds_and_latches(self):
         self.assertFalse(self.b.receive(dict(self.state,motion_enabled=False),self.now))
         self.assertEqual(self.backend.holds,1)
+        rows = [json.loads(line) for line in self.log.getvalue().splitlines()]
+        rejected = [row for row in rows if row['event'] == 'input_rejected']
+        self.assertEqual(rejected[-1]['reason'], 'input_disabled')
+        self.assertEqual(rejected[-1]['source_frame_id'], 1)
         self.b.receive(dict(self.state,frame_id=2),self.now)
         self.assertFalse(self.b.step())
         self.assertTrue(self.b.arm())
@@ -72,6 +76,11 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(self.b.step())
         self.assertEqual(self.backend.actions,[])
         self.assertEqual(self.backend.holds,1)
+        rows = [json.loads(line) for line in self.log.getvalue().splitlines()]
+        rejected = [row for row in rows if row['event'] == 'command_rejected']
+        self.assertEqual(rejected[-1]['reason'], 'motion_validation_failed')
+        for name in ('observation', 'action_requested', 'limited_position_m', 'dt_s'):
+            self.assertIn(name, rejected[-1])
 
     def test_watchdog_during_ik_discards_result(self):
         entered, release = threading.Event(), threading.Event()
@@ -98,6 +107,9 @@ class BridgeTests(unittest.TestCase):
     def test_source_restart_requires_rearm(self):
         self.assertFalse(self.b.receive(dict(self.state,frame_id=0),self.now))
         self.assertFalse(self.b.enabled)
+        self.assertTrue(self.b.receive(self.state,self.now))
+        self.assertFalse(self.b.step())
+        self.assertTrue(self.b.arm())
 
     def test_hold_failure_is_reported(self):
         def fail():
@@ -106,6 +118,37 @@ class BridgeTests(unittest.TestCase):
         self.b.stop('receive_failure')
         self.assertEqual(self.b.reason,'hold_failed')
         self.assertIn('hold_failed',self.log.getvalue())
+
+    def test_hold_failure_reason_survives_following_input_rejection(self):
+        def fail():
+            raise RuntimeError('bus disconnected')
+        self.backend.hold = fail
+        self.b.stop('receive_failure')
+        self.b.receive(dict(self.state,motion_enabled=False),self.now)
+        self.b.stop('receive_failure')
+        self.assertEqual(self.b.reason, 'hold_failed')
+        self.b.receive(dict(self.state,frame_id=2),self.now)
+        self.assertFalse(self.b.enabled)
+        self.assertTrue(self.b.arm())
+        self.assertEqual(self.b.reason, 'armed')
+
+    def test_initial_ee_outside_workspace_logs_arm_rejection(self):
+        self.b.stop('manual_stop')
+        self.backend.position = [.5,0.,.2]
+        self.assertFalse(self.b.arm())
+        self.assertFalse(self.b.enabled)
+        row = json.loads(self.log.getvalue().splitlines()[-1])
+        self.assertEqual(row['event'], 'arm_rejected')
+        self.assertEqual(row['reason'], 'initial_ee_outside_workspace_or_fixed_z')
+        self.assertEqual(row['observation']['ee_position_m'], [.5,0.,.2])
+
+    def test_arm_without_fresh_input_is_logged(self):
+        self.b.stop('manual_stop')
+        self.now += .201
+        self.assertFalse(self.b.arm())
+        row = json.loads(self.log.getvalue().splitlines()[-1])
+        self.assertEqual(row['event'], 'arm_rejected')
+        self.assertEqual(row['reason'], 'input_not_fresh')
 
     def test_robot_observation_failure_stops_inside_bridge(self):
         def fail():

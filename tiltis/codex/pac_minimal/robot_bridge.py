@@ -70,7 +70,8 @@ class Bridge:
             was_enabled = self.enabled
             self.enabled = False
             self.generation += 1
-            self.reason = reason
+            if was_enabled or self.reason == 'manual_arm_required':
+                self.reason = reason
             if was_enabled:
                 try:
                     start = self.clock()
@@ -122,21 +123,33 @@ class Bridge:
                 self.last_state = None
                 self.fresh_at = None
                 self.stop(str(exc))
+                rejected_frame = state.get('frame_id') if isinstance(state, dict) else None
+                self.record(event='input_rejected', reason=str(exc),
+                            source_frame_id=rejected_frame if type(rejected_frame) is int else None)
                 return False
 
     def arm(self):
         with self.lock:
             if self.enabled:
+                self.record(event='arm_rejected', reason='already_armed')
                 return False
             if self.last_state is None or self.fresh_at is None or self.clock()-self.fresh_at > .2:
+                self.record(event='arm_rejected', reason='input_not_fresh',
+                            source_frame_id=self.last_frame)
                 return False
-            obs = self.backend.observe()
+            try:
+                obs = self.backend.observe()
+            except Exception as exc:
+                self.record(event='arm_rejected', reason='arm_observation_failed', error=str(exc))
+                raise
             p = obs['ee_position_m']
             if not self.workspace.contains(p, z_tolerance=.001):
                 self.reason = 'initial_ee_outside_workspace_or_fixed_z'
+                self.record(event='arm_rejected', reason=self.reason, observation=obs)
                 return False
             if self.clock()-self.fresh_at > .2:
                 self.reason = 'stale_during_arm'
+                self.record(event='arm_rejected', reason=self.reason, observation=obs)
                 return False
             self.reference = obs
             self.commanded = list(p)
@@ -173,37 +186,45 @@ class Bridge:
             limited = [a+ratio*d for a,d in zip(self.commanded, delta)]
             reference = self.reference
             frame_id = self.last_frame
+            context = dict(source_frame_id=frame_id, observation=obs,
+                           observation_started_s=observed_at, observation_finished_s=observed_end,
+                           requested_position_m=target, limited_position_m=limited, dt_s=dt)
         # IK and path checking may be slow: neither holds the SDK/control lock.
+        action = None
         try:
             action = self.backend.solve(limited, reference, obs)
             valid = self.backend.validate(action, limited, reference, obs, dt)
             with self.lock:
                 self.watchdog()
                 if not self.enabled or generation != self.generation:
+                    self.record(event='command_rejected', reason='generation_changed_or_disabled',
+                                action_requested=action, **context)
                     return False
                 if self.clock()-observed_at > .2:
                     self.stop('stale_robot_observation')
+                    self.record(event='command_rejected', reason='stale_robot_observation',
+                                action_requested=action, **context)
                     return False
                 if not valid:
                     self.stop('motion_validation_failed')
+                    self.record(event='command_rejected', reason='motion_validation_failed',
+                                action_requested=action, **context)
                     return False
                 sent_at = self.clock()
                 sent = self.backend.send(action)
                 sent_end = self.clock()
                 self.commanded = limited
                 self.last_step = sent_end
-                self.record(event='command', source_frame_id=frame_id,
-                    observation=obs, observation_started_s=observed_at,
-                    observation_finished_s=observed_end, requested_position_m=target,
-                    limited_position_m=limited, action_requested=action,
-                    action_sent=sent, send_started_s=sent_at, send_finished_s=sent_end)
+                self.record(event='command', action_requested=action, action_sent=sent,
+                            send_started_s=sent_at, send_finished_s=sent_end, **context)
                 self.watchdog()
                 return self.enabled
         except Exception as exc:
             self.stop('backend_error')
             with self.lock:
                 self.record(event='backend_error', error=str(exc),
-                            action_sent=getattr(exc,'action_sent',None))
+                            action_requested=action, action_sent=getattr(exc,'action_sent',None),
+                            **context)
             return False
 
 
