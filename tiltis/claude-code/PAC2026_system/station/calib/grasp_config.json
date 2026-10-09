@@ -1,19 +1,27 @@
 {
-  "_note": "2026-10-09 시편: 흰 70×70×90, 갈색 80×80×45. 옆집기 IK 후보 설정이며 실기 승인값이 아니다. 고정 카메라–로봇 좌표 보정 및 실측 workspace가 필요하다. 상자 위치는 매 작업 depth로 재계산한다. top 모드의 기존 설정도 보존한다.",
-  "grasp_mode": "side",
-  "side_height_frac": 0.5,
-  "side_tcp_offset_mm": 0.0,
-  "side_approach_mm": 50.0,
-  "side_lift_mm": 100.0,
-  "side_reach_r_m": [0.37, 0.47],
-  "box_types_by_height_mm": {"white": 90, "brown": 45},
-  "workspace": null,
-  "tab_size_mm": [70.0, 70.0],
+  "_note": "2026-10-09 현장: 흰 70×70×90, 갈색 80×80×45. 옆집기(grasp_mode side): 로봇 중심에서 38~46cm에 둔 상자를 수평으로 접근해 양 옆면을 집는다. 집는 높이 = 상자 높이×0.5. gripper_open은 105mm 이상(대각선 99mm)으로 가르쳐 방향이 랜덤이어도 닫히며 정렬되게. side_tcp_offset_mm는 -DryRun으로 집게 높이를 보고 조정",
+  "tab_size_mm": [
+    70.0,
+    70.0
+  ],
   "tab_height_mm": 0.0,
   "grasp_depth_mm": null,
   "grasp_depth_frac": 0.4,
   "grasp_depth_min_mm": 20.0,
   "grasp_depth_max_mm": 35.0,
   "approach_mm": 20.0,
-  "lift_mm": 20.0
+  "lift_mm": 20.0,
+  "grasp_mode": "side",
+  "side_height_frac": 0.5,
+  "side_tcp_offset_mm": 0.0,
+  "side_approach_mm": 50.0,
+  "side_lift_mm": 100.0,
+  "side_reach_r_m": [
+    0.37,
+    0.47
+  ],
+  "box_types_by_height_mm": {
+    "white": 90,
+    "brown": 45
+  }
 }

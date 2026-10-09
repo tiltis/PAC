@@ -54,6 +54,25 @@ def tape_fill(vis, roi, color=None):
     return float(m.mean())
 
 
+def tape_blob_areas(vis, roi, color=None, merge_px=9):
+    """영역 안 테이프 색 덩어리들의 면적(픽셀)을 큰 순서로. 상자가 아무 방향으로 놓여도 개수를 셀 수 있게
+    위치가 아니라 덩어리 수를 본다. 가까운 조각은 merge_px 커널로 닫아 한 덩어리로 묶는다."""
+    c = color or GREEN
+    img = _crop(vis, roi) if roi else vis
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    if c["mode"] == "dark":
+        m = (V <= c["v_max"]) & (S <= c["s_max"])
+    else:
+        m = (H >= c["h"][0]) & (H <= c["h"][1]) & (S >= c["s_min"]) & (V >= c["v_min"])
+    m = m.astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    k = max(1, int(merge_px))
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    n, _, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    return sorted((int(st[i, cv2.CC_STAT_AREA]) for i in range(1, n)), reverse=True)
+
+
 def tape_color(cfg):
     if "tape_color" in cfg:
         return cfg["tape_color"]
@@ -74,6 +93,9 @@ def measure(face, vis, lwir_mean, cfg):
     for t in cfg.get("tapes", []):
         if t["face"] == face:
             out[f"tape_{t['id']}_fill"] = round(tape_fill(vis, t["roi_rgb"], color), 4)
+    tc = cfg.get("tape_count")
+    if tc and tc.get("face") == face:  # 방향 무관 개수 세기: 큰 덩어리 면적 목록(기준값 맞추기와 판정에 함께 쓴다)
+        out["tape_blob_areas"] = tape_blob_areas(vis, tc.get("roi_rgb"), color, tc.get("merge_px", 9))[:8]
     c = cfg.get("coolant")
     if c and c.get("face") == face:
         out["coolant_delta_counts"] = round(coolant_delta(lwir_mean, c["roi_lwir"], c["ref_roi_lwir"]), 1)
@@ -107,6 +129,24 @@ def judge_face(face, vis, lwir_mean, cfg):
         f["tape_present_count"] = sum(1 for t in tapes_here if f[f"tape_{t['id']}_present"] is True)
         f["tape_missing_count"] = len(missing_ids)
         f["tape_missing_ids"] = missing_ids
+    tc = cfg.get("tape_count")
+    if tc and tc.get("face") == face:  # 상자 방향이 랜덤일 때: 영역 고정 대신 테이프 덩어리 개수 ≥ 기대 개수
+        expected, min_area = int(tc.get("expected", 3)), tc.get("min_area_px")
+        areas = m.get("tape_blob_areas", [])
+        if min_area is None:
+            count = None
+            uncertain.append("tape_threshold_missing_count")
+        else:
+            count = sum(1 for a in areas if a >= min_area)
+        f["tape_expected"] = expected
+        f["tape_present_count"] = None if count is None else min(count, expected)
+        f["tape_missing_count"] = None if count is None else max(0, expected - count)
+        f["tape_blob_count"] = count
+        f.setdefault("tape_missing_ids", [])
+        if count is not None and count < expected:
+            reasons.append(f"tape_missing_count_{expected - count}")
+        elif count is not None and count > expected and tc.get("extra_is_uncertain", True):
+            uncertain.append("tape_extra_blobs")  # 초록이 더 보이면(배경·다른 상자) 자동 통과시키지 않는다
     c = cfg.get("coolant")
     if c and c.get("face") == face:
         d, thr, margin = m["coolant_delta_counts"], c.get("delta_max_counts"), c.get("margin_counts", 0)

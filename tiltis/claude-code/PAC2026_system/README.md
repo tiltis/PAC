@@ -104,6 +104,14 @@ ules_calib.py roi-tape --capture <폴더> --face A --auto --count <그 면에서
 
 3대의 픽셀 정합은 전체 실행의 필수 조건이 아니다. 시료·면·회차·고유 트리거·취득 시각을 연결하고, 촬영 동안 한 시료를 고정한다는 운영 전제를 명시한다. 깊이 픽셀을 Arducam RGB 픽셀로 간주하지 않으며, 대상의 섭씨 온도나 임의 결함 임계값을 만들지 않는다. 상세 인수조건과 필요한 실측 입력은 [SENSOR_ACCEPTANCE.md](SENSOR_ACCEPTANCE.md)에 정리했다. 현재 결함 규칙이 없어 품질 통과 결과는 계속 `review`다.
 
+## 7-0. 옆집기 모드 (10-09 현장 결정: 상자 위치·방향이 매번 조금 다름, 위에서는 못 집음)
+`station/calib/grasp_config.json`의 `"grasp_mode": "side"`. 깊이로 찾은 상자 중심(책상 위)에 법선×(높이×`side_height_frac`)을 더한 점을 로봇 쪽에서 **수평으로** 접근해 양 옆면을 집는다.
+- SO-101은 팔을 뻗은 **38~46cm**에서만 수평 접근이 풀린다(`side_reach_r_m`). 접근 5cm 뒤, 들기 10cm.
+- 닫힘 방향은 접근과 직각(수평)으로 고정하고 상자 방향은 무시한다: `gripper_open`을 상자 대각선(99mm)보다 넓은 **105mm 이상**으로 가르치면 닫히면서 정렬된다.
+- 상자 종류는 잰 높이로 자동 선택(`box_types_by_height_mm`), 그 상자의 `gripper_held_<box>` 값으로 집기 확인.
+- 좌표 맞추기(`teach.py --handeye`)도 같은 점(상자 중심, 가운데 높이)을 쓰므로 집게 기준점 오차가 상쇄된다. 남는 높이 차이는 `-DryRun`으로 보고 `side_tcp_offset_mm`.
+- 테이프는 `tape_count`(방향 무관 개수 세기, `rules_calib.py roi-tape-count`)로 판정한다. 기존 영역 고정 방식(`tapes`)과 같이 쓸 수 있다.
+
 ## 7. 비전 집기 (방식 C: 깊이로 상자 손잡이를 찾아 집기)
 
 기본은 가르친 자세로 집는다(방식 A). 비전 집기는 아래 현장 절차를 모두 통과했을 때만 켠다.

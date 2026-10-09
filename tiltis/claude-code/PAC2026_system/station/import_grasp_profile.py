@@ -35,8 +35,6 @@ def convert(profile: dict, box: str, poses: dict, allow_calibration_mismatch=Fal
     if profile.get("box_cm") != BOX_CM[box]:
         raise ValueError(f"프로필 상자 {profile.get('box_cm')} ≠ {box} 상자 {BOX_CM[box]}")
     ours, path = our_calibration_sha256(robot_id)
-    if not allow_calibration_mismatch and (not ours or not profile.get("calibration_sha256")):
-        raise ValueError("양쪽 로봇 보정 파일의 해시가 필요: 보정이 없는 두 파일을 같은 보정으로 간주하지 않음")
     if profile.get("calibration_sha256") != ours and not allow_calibration_mismatch:
         raise ValueError("보정 파일이 다름: 다른 보정으로 가르친 각도는 이 로봇에서 다른 자세가 된다. "
                          f"상대도 {path} 보정을 쓰게 하거나(--robot-id so101_follower --calibration-dir <그 폴더>), 여기서 다시 가르칠 것")

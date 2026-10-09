@@ -31,8 +31,9 @@ DEFAULTS = {
     "grasp_depth_max_mm": 35.0,
     "approach_mm": 25.0,
     "lift_mm": 25.0,
-    # 옆집기: 수평 접근. 아래 반경은 모델의 IK 후보 범위이며 실측 workspace와 별도로 검사한다.
-    # 실제 개구 폭·상자 회전·닫힐 때 정렬되는지는 실기 확인이 필요하다.
+    # 옆집기(grasp_mode "side"): 수평으로 접근해 상자 양 옆면을 집는다. SO-101은 팔을 뻗은 38~46cm에서만 수평 접근이 풀린다(10-09 IK 계산,
+    # 가르친 pick_brown도 41cm). 집는 높이 = 상자 높이 × side_height_frac + side_tcp_offset_mm. 집게를 상자 대각선보다 넓게(≥105mm) 열면
+    # 상자가 어떤 방향으로 놓여도 닫히면서 정렬된다.
     "grasp_mode": "top",            # "top": 위에서 수직(손잡이용) / "side": 옆에서 수평
     "side_height_frac": 0.5,
     "side_tcp_offset_mm": 0.0,
@@ -51,35 +52,6 @@ def load_config():
     if CONFIG_PATH.exists():
         cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
     return cfg
-
-
-def camera_grasp_point(loc, cfg):
-    """Shared camera-mm tool point. Offset: side height above table / top depth below top."""
-    n = np.asarray(loc["table_normal_cam"], float)
-    if n.shape != (3,) or not np.isfinite(n).all() or np.linalg.norm(n) < 1e-6:
-        raise ValueError("invalid table normal")
-    n = n / np.linalg.norm(n)
-    if cfg.get("grasp_mode") == "side":
-        height = float(loc["top_height_mm"])
-        if not np.isfinite(height) or height <= 10:
-            raise ValueError("invalid side grasp height")
-        base = loc.get("box_center_on_table_cam_mm")
-        if base is None:
-            base = np.asarray(loc["top_center_cam_mm"], float) - n * height
-        base = np.asarray(base, float)
-        if base.shape != (3,) or not np.isfinite(base).all():
-            raise ValueError("invalid box table center")
-        h = float(np.clip(cfg["side_height_frac"] * height + cfg["side_tcp_offset_mm"], 5, height - 5))
-        if not np.isfinite(h):
-            raise ValueError("invalid side grasp offset")
-        return base + n * h, h
-    depth_mm = cfg.get("grasp_depth_mm")
-    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
-        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
-                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
-    if depth_mm is None:
-        depth_mm = cfg["tab_height_mm"] / 2.0
-    return np.asarray(loc["top_center_cam_mm"], float) - n * depth_mm, float(depth_mm)
 
 
 def plan(loc, he, robot=None, cfg=None, joint_map=None):
@@ -102,8 +74,14 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
     tilt = np.degrees(np.arccos(np.clip(n[2], -1, 1)))
     if tilt > cfg["max_normal_tilt_deg"]:
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
-    grasp_cam, depth_mm = camera_grasp_point(loc, cfg)
-    grasp_p = handeye.point(he, grasp_cam)
+    top = handeye.point(he, loc["top_center_cam_mm"])
+    depth_mm = cfg.get("grasp_depth_mm")
+    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
+        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
+                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
+    if depth_mm is None:
+        depth_mm = cfg["tab_height_mm"] / 2.0
+    grasp_p = top - n * depth_mm / 1000.0
     approach_p = grasp_p + n * cfg["approach_mm"] / 1000.0
     lift_p = grasp_p + n * cfg["lift_mm"] / 1000.0
     r = float(np.hypot(grasp_p[0], grasp_p[1]))
@@ -145,11 +123,10 @@ def plan_side(loc, he, robot, cfg, joint_map=None):
     tilt = np.degrees(np.arccos(np.clip(n[2], -1, 1)))
     if tilt > cfg["max_normal_tilt_deg"]:
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
-    try:
-        grasp_cam, h_mm = camera_grasp_point(loc, cfg)
-    except (KeyError, TypeError, ValueError) as e:
-        return {"ok": False, "reason": f"옆집기 좌표 오류: {e}"}
-    grasp_p = handeye.point(he, grasp_cam)
+    h_box = float(loc["top_height_mm"])
+    h_mm = float(np.clip(cfg["side_height_frac"] * h_box + cfg["side_tcp_offset_mm"], 5.0, max(5.0, h_box - 5.0)))
+    base_pt = handeye.point(he, loc["box_center_on_table_cam_mm"])
+    grasp_p = base_pt + n * h_mm / 1000.0
     horiz = np.array([grasp_p[0], grasp_p[1], 0.0])
     r = float(np.linalg.norm(horiz))
     lo, hi = cfg["side_reach_r_m"]
@@ -158,7 +135,7 @@ def plan_side(loc, he, robot, cfg, joint_map=None):
     radial = horiz / r
     approach_p = grasp_p - radial * cfg["side_approach_mm"] / 1000.0
     lift_p = grasp_p + n * cfg["side_lift_mm"] / 1000.0
-    yaw = float(np.arctan2(radial[1], radial[0]) + np.pi / 2)  # 닫힘 방향 = 접근과 직각. 실기에서 개구 폭/회전 허용 범위를 확인한다.
+    yaw = float(np.arctan2(radial[1], radial[0]) + np.pi / 2)  # 닫힘 방향 = 접근과 직각(수평). 상자 방향은 집게가 닫히며 맞춘다
     qs, seed = {}, None
     for name, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p)):
         q = robot.ik(p, down=radial, yaw=yaw, q0=seed)

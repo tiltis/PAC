@@ -206,6 +206,14 @@ class So101Robot(RobotBase):
     def disable_torque(self) -> None:
         self._robot.bus.disable_torque()  # 현장 확인
 
+    def hold(self) -> None:
+        """손으로 옮긴 현재 자세를 그대로 붙잡는다(토크 ON). 먼저 현재 위치를 목표로 써서 켤 때 팔이 예전 목표로 튀지 않게 한다."""
+        self._need_robot()
+        cur = self.current_joints()
+        self._send({k: float(v) for k, v in cur.items()})  # 현장 확인: 토크 OFF 상태에서도 목표값 쓰기는 허용됨
+        self.enable_torque()
+        self._target = dict(cur)
+
     def enable_torque(self) -> None:
         self._robot.bus.enable_torque()  # 현장 확인
 

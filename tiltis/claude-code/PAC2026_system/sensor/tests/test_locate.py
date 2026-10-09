@@ -108,3 +108,18 @@ def test_front_face_model_picks_candidate_by_height():
     other = render(cam_h=190.0, box=((-60, 60), (300, 420)), box_h=60.0, tilt_deg=14.0)
     r = locate.public(locate.locate_box_front_any(other, INTR, cands, tab_height_mm=0, pick_roi=[0, 0, W, H]))
     assert not r["found"] and r["reason"] == "no_candidate_box_matched" and len(r["candidates"]) == 2
+
+
+def test_top_any_picks_box_by_height_and_size_and_gives_table_center():
+    # 위에서 내려다보는 카메라(60°): 갈색 80×80×45와 흰 70×70×90을 높이·윗면 크기로 고른다
+    cands = [(70, 70, 90), (80, 80, 45)]
+    cam_h, tilt = 450.0, 60.0
+    brown = render(cam_h=cam_h, box=((-40, 40), (260, 340)), box_h=45.0, tilt_deg=tilt)
+    r = locate.public(locate.locate_box_top_any(brown, INTR, cands, pick_roi=[0, 0, W, H], downsample=2))
+    assert r["found"] and r["box_mm"] == [80.0, 80.0, 45.0] and r["mode"] == "top_face", r
+    t = np.radians(tilt)
+    Rcw = np.array([[1, 0, 0], [0, np.cos(t), np.sin(t)], [0, -np.sin(t), np.cos(t)]])
+    assert np.linalg.norm(np.array(r["box_center_on_table_cam_mm"]) - Rcw.T @ np.array([0.0, cam_h, 300.0])) < 10
+    white = render(cam_h=cam_h, box=((-35, 35), (265, 335)), box_h=90.0, tilt_deg=tilt)
+    r = locate.public(locate.locate_box_top_any(white, INTR, cands, pick_roi=[0, 0, W, H], downsample=2))
+    assert r["found"] and r["box_mm"] == [70.0, 70.0, 90.0], r

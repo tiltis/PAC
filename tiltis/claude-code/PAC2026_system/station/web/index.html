@@ -69,6 +69,11 @@
   <div class="card">
     <div class="row">
       <input id="specimen" placeholder="시료 ID (예: S01)" autocomplete="off">
+      <select id="boxType" title="상자 종류(가르친 자세 세트)" style="font-size:15px">
+        <option value="white">흰 상자 70×70×90</option>
+        <option value="brown">갈색 상자 80×80×45</option>
+        <option value="">공통 자세</option>
+      </select>
       <button id="start">검사 시작</button>
     </div>
     <div class="row" style="margin-top:8px">
@@ -170,7 +175,7 @@ async function post(path, body) {
 $('start').onclick = () => {
   const id = $('specimen').value.trim();
   if (!id) { alert('시료 ID를 입력하세요'); return; }
-  post('/api/run', { specimen_id: id, session: $('session').value.trim() || 'demo' });
+  post('/api/run', { specimen_id: id, session: $('session').value.trim() || 'demo', box_type: $('boxType').value });
 };
 $('pause').onclick = () => post('/api/pause');
 // 실시간 카메라: 이전 이미지가 다 받아진 뒤에 다음 요청 (요청이 쌓이지 않게)

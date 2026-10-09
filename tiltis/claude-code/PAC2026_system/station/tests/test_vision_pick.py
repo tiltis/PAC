@@ -209,3 +209,47 @@ def test_box_type_from_depth_height():
     assert grasp.box_type_for({"top_height_mm": 44.0}, cfg) == "brown"
     assert grasp.box_type_for({"top_height_mm": 70.0}, cfg) == ""
     assert grasp.box_type_for({}, cfg) == ""
+
+
+def test_vision_regrasp_once_when_first_grasp_misses():
+    # 첫 집기에서 빈손이면 열고 다시 찾아 한 번 더 집는다. MockRobot은 grasp_miss_once로 첫 닫힘만 놓친다
+    from robot import MockRobot as _MR
+
+    class MissOnce(_MR):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.closes = 0
+
+        def set_gripper(self, state):
+            super().set_gripper(state)
+            if state == "closed":
+                self.closes += 1
+                if self.closes == 1:
+                    self._holding = False  # 첫 번째만 놓침
+
+    class Picker:
+        dry_run = False
+        retry_grasp = True
+
+        def __init__(self):
+            self.locates = 0
+
+        def locate(self):
+            self.locates += 1
+            return {"found": True, "top_height_mm": 45.0, "box_center_on_table_cam_mm": [0, 0, 400]}
+
+        def plan(self, loc):
+            return {"ok": True, "approach": {}, "grasp": {}, "lift": {}}
+
+        def box_type_for(self, loc):
+            return "brown"
+
+    robot = MissOnce(speed=0)
+    picker = Picker()
+    from test_sequencer import FakeSensor
+    seq = Sequencer(robot, FakeSensor(), settle_timeout_s=0.1, picker=picker)
+    r = seq.run("RG1", "t")
+    assert r["state"] == "done", r
+    assert picker.locates == 2 and robot.closes == 2
+    assert [g["holding"] for g in r["grasp_checks"]][:2] == [False, True]
+    assert r["pick"]["retry"]["plan"]["ok"] is True and r["box_type"] == "brown"

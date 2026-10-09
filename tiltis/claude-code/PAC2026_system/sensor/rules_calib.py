@@ -104,6 +104,36 @@ def cmd_roi_tape(a):
     print(f"면 {a.face} 테이프 영역 {len(rois)}개. 이제 fit으로 기준값을 맞춘다")
 
 
+def cmd_roi_tape_count(a):
+    """상자가 랜덤 방향으로 놓일 때: 영역 하나(상자가 들어올 범위) 안에서 초록 덩어리 개수를 센다."""
+    vis, _, _ = load_capture(a.capture)
+    color = rules.tape_color(cfg_load())
+    if a.rois:
+        roi = parse_rois(a.rois)[0]
+    elif a.whole:
+        roi = None
+    else:  # 자동: 지금 보이는 초록 덩어리 전체를 감싸는 사각형을 여유 있게(상자가 조금 움직여도 들어오게)
+        rs = auto_tape_rois(vis, color, a.expected, pad=0.5)
+        if len(rs) < a.expected:
+            raise SystemExit(f"초록 테이프 {a.expected}개를 찾지 못함(찾은 수 {len(rs)}). --whole로 화면 전체를 쓰거나 조명 확인")
+        x0 = max(0, min(r[0] for r in rs) - a.margin)
+        y0 = max(0, min(r[1] for r in rs) - a.margin)
+        x1 = min(vis.shape[1], max(r[2] for r in rs) + a.margin)
+        y1 = min(vis.shape[0], max(r[3] for r in rs) + a.margin)
+        roi = [x0, y0, x1, y1]
+    areas = rules.tape_blob_areas(vis, roi, color)
+    dbg = vis.copy()
+    if roi:
+        cv2.rectangle(dbg, (int(roi[0]), int(roi[1])), (int(roi[2]), int(roi[3])), (0, 0, 255), 3)
+    cv2.imwrite(str(Path(a.capture) / "rules_tape_count_roi.jpg"), dbg)
+    cfg = cfg_load()
+    cfg["tape_count"] = {"face": a.face, "roi_rgb": [round(v, 1) for v in roi] if roi else None, "expected": a.expected,
+                         "min_area_px": None, "merge_px": 9}
+    cfg["validated"] = False
+    cfg_save(cfg)
+    print(f"면 {a.face} 개수 영역 저장, 지금 보이는 덩어리 면적(큰 순): {areas[:6]}. 이제 fit으로 최소 면적 기준을 맞춘다")
+
+
 def cmd_roi_coolant(a):
     _, lw, _ = load_capture(a.capture)
     if a.rois:
@@ -140,6 +170,18 @@ def cmd_fit(a):
         t["fill_min"] = round((min(on) + max(off)) / 2, 4) if sep else None
         report[t["id"]] = {"on": [round(v, 3) for v in on], "off": [round(v, 3) for v in off], "separable": sep, "fill_min": t["fill_min"]}
         ok_all &= sep
+    tc = cfg.get("tape_count")
+    if tc:
+        k = int(tc.get("expected", 3))
+
+        def kth(areas):  # 기대 개수 번째로 큰 덩어리 면적(없으면 0)
+            return areas[k - 1] if len(areas) >= k else 0
+        on = [kth(m.get("tape_blob_areas", [])) for _, f, m in measures(a.tape_on, cfg) if f == tc["face"]]
+        off = [kth(m.get("tape_blob_areas", [])) for _, f, m in measures(a.tape_off, cfg) if f == tc["face"]]
+        sep = len(on) >= 3 and len(off) >= 3 and min(on) > max(off)
+        tc["min_area_px"] = int((min(on) + max(off)) / 2) if sep else None
+        report["tape_count"] = {"kth_area_on": on, "kth_area_off": off, "separable": sep, "min_area_px": tc["min_area_px"]}
+        ok_all &= sep
     c = cfg.get("coolant")
     if c:
         on = [m["coolant_delta_counts"] for _, f, m in measures(a.coolant_on, cfg) if "coolant_delta_counts" in m]
@@ -151,7 +193,7 @@ def cmd_fit(a):
         report["coolant"] = {"on": on, "off": off, "separable": sep, "delta_max_counts": c["delta_max_counts"],
                              "margin_counts": c["margin_counts"]}
         ok_all &= sep
-    cfg.update(validated=bool(ok_all and (cfg["tapes"] or c)), source_id=a.source_id,
+    cfg.update(validated=bool(ok_all and (cfg["tapes"] or c or cfg.get("tape_count"))), source_id=a.source_id,
                fitted=dt.datetime.now().isoformat(timespec="seconds"), fit_report=report)
     print(json.dumps(report, ensure_ascii=False, indent=1))
     print("validated:", cfg["validated"], "" if cfg["validated"] else "(겹치거나 3장 미만인 항목이 있어 판정에 쓰지 않음)")
@@ -168,6 +210,8 @@ def cmd_eval(a):
             v, r, f = res if res else (None, [], {})
             if label.startswith("tape"):
                 pres = [f[k] for k in f if k.startswith("tape_") and k.endswith("_present")]
+                if f.get("tape_missing_count") is not None and "tape_blob_count" in f:  # 개수 세기 모드
+                    pres.append(f["tape_missing_count"] == 0)
                 correct = all(pres) if label == "tape_on" else (False in pres)
             else:
                 correct = f.get("coolant_present") is (label == "coolant_on")
@@ -199,7 +243,7 @@ def cmd_timing(a):
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("roi-tape", "roi-coolant"):
+    for name in ("roi-tape", "roi-coolant", "roi-tape-count"):
         s = sub.add_parser(name)
         s.add_argument("--capture", required=True)
         s.add_argument("--face", required=True, choices=["A", "B", "C"])
@@ -207,6 +251,10 @@ def main():
         if name == "roi-tape":
             s.add_argument("--auto", action="store_true", help="초록 테이프 자동 찾기")
             s.add_argument("--count", type=int, default=3)
+        if name == "roi-tape-count":  # 상자 방향 랜덤: 영역 하나 안에서 초록 덩어리 개수 >= expected
+            s.add_argument("--expected", type=int, default=3)
+            s.add_argument("--whole", action="store_true", help="화면 전체에서 센다(초록 배경이 없을 때만)")
+            s.add_argument("--margin", type=int, default=120, help="자동 영역 여유(픽셀)")
     for name in ("fit", "eval"):
         s = sub.add_parser(name)
         for k in ("tape-on", "tape-off", "coolant-on", "coolant-off"):
@@ -216,7 +264,8 @@ def main():
     s = sub.add_parser("timing")
     s.add_argument("--session", required=True)
     a = ap.parse_args()
-    {"roi-tape": cmd_roi_tape, "roi-coolant": cmd_roi_coolant, "fit": cmd_fit, "eval": cmd_eval, "timing": cmd_timing}[a.cmd](a)
+    {"roi-tape": cmd_roi_tape, "roi-tape-count": cmd_roi_tape_count, "roi-coolant": cmd_roi_coolant, "fit": cmd_fit,
+     "eval": cmd_eval, "timing": cmd_timing}[a.cmd](a)
 
 
 if __name__ == "__main__":

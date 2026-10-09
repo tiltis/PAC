@@ -224,3 +224,35 @@ def test_rules_cli_calibrates_face_c_and_detects_missing_tape(calib_dir, monkeyp
     verdict, reasons, features = rules.judge_face("C", vis, lw, saved)
     assert verdict == "suspect" and "tape_missing_T2" in reasons and "coolant_absent" in reasons
     assert features["tape_expected"] == 3 and features["tape_present_count"] == 2
+
+
+def _count_capture(n_tapes, rng, rotate=True):
+    """초록 테이프 n개가 임의 위치·기울기로 붙은 흰 상자(방향 랜덤 상황)."""
+    vis = np.full((600, 800, 3), 235, np.uint8)
+    centers = [(200, 200), (560, 200), (380, 430), (640, 470)]  # 뚜껑 이음매 3곳처럼 서로 떨어진 자리 + 흔들림(4번째는 여분 초록 시험용)
+    for k in range(n_tapes):
+        cx, cy = (int(c + rng.uniform(-40, 40)) for c in centers[k])
+        ang = float(rng.uniform(0, 180)) if rotate else 0.0
+        box = cv2.boxPoints(((cx, cy), (90, 36), ang)).astype(np.int32)
+        cv2.fillPoly(vis, [box], GREEN_BGR)
+    return vis
+
+
+def test_tape_count_mode_counts_blobs_regardless_of_orientation():
+    cfgc = {"version": "t", "validated": True, "tape_color": rules.GREEN,
+            "tapes": [], "tape_count": {"face": "A", "roi_rgb": None, "expected": 3, "min_area_px": 800, "merge_px": 9},
+            "coolant": None, "faces_without_checks_ok": []}
+    lw = np.full((256, 320), 22000, np.float32)
+    for seed in range(5):
+        rng = np.random.default_rng(seed)
+        v, r, f = rules.judge_face("A", _count_capture(3, rng), lw, cfgc)
+        assert v == "no_anomaly" and f["tape_present_count"] == 3 and f["tape_missing_count"] == 0, (seed, v, r, f)
+        v, r, f = rules.judge_face("A", _count_capture(2, rng), lw, cfgc)
+        assert v == "suspect" and "tape_missing_count_1" in r and f["tape_missing_count"] == 1, (seed, v, r)
+        v, r, f = rules.judge_face("A", _count_capture(0, rng), lw, cfgc)
+        assert v == "suspect" and "tape_missing_count_3" in r
+    v, r, f = rules.judge_face("A", _count_capture(3, np.random.default_rng(9)), lw,
+                               dict(cfgc, tape_count=dict(cfgc["tape_count"], min_area_px=None)))
+    assert v == "review" and "tape_threshold_missing_count" in r
+    v, r, f = rules.judge_face("A", _count_capture(4, np.random.default_rng(9)), lw, cfgc)
+    assert v == "review" and "tape_extra_blobs" in r

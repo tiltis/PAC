@@ -80,3 +80,8 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 상대 테스트의 누락 import 도구 오류를 재현 후 `import_grasp_profile.py`도 연결했다. 두 보정 해시가 모두 없는 경우의 오인 통과를 차단했다. 최종 스테이션 **113 pass(109.13s)**, Codex **44 pass(10.04s)**. 같은 가상 보정값으로 흰/갈색 각각 세 위치의 집기·3면 검사·분류, 저장된 pick/lift 부재, FK/재촬영/미보정 이동 차단을 확인했다. 명령과 세부 증거는 [Codex HANDOFF](../codex/HANDOFF.md) 마지막 절에 있다.
 
 확인 시 Claude는 COM8에서 일회성 hand-eye 보정을 진행 중이며 아직 보정 파일/실측 workspace가 없었다. 뒤에 추가된 배포 teach의 점 검사 경고는 실행 파일에 그대로 보존했고, 특정 책상 z 범위를 일반화하지 않았다. 보정·FK/실측 범위·경로/개구/속도/stop 확인과 사용자 승인 뒤 전체 공유 소스의 센서 captured_at_s 및 `run_station -PickMode vision` entry를 배포해야 한다. 기존 8000 서버는 이 통합으로 바뀌지 않았다. 실기 자동 집기/학습 데이터 완료로 보고하지 않는다.
+
+## 2026-10-09 노트북 동기화 (tiltis)
+- 변경: station(grasp/robot/sequencer/teach/web), sensor(locate/rules/server), 리플레이 bat, handeye.json·poses.json, sh 실행 스크립트 추가
+- 테스트: 이번 커밋에서 새로 실행한 테스트 없음 (작업 중 코드 공유용 스냅샷)
+- 남은 일: 실제 로봇에서 grasp/sequencer 검증

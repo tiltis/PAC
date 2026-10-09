@@ -448,3 +448,19 @@ def test_faces_env_rejects_unknown_or_duplicate():
             parse_faces(bad)
     with _pt.raises(SequenceError):
         decide({"A": "no_anomaly", "B": "no_anomaly"}, ("A", "B", "C"))  # C 빠짐 → 정상 분류 금지
+
+
+def test_box_type_selects_taught_pose_variant_and_falls_back():
+    # 흰/갈색 상자별로 가르친 자세(pick_white 등)가 있으면 그것을 쓰고, 없는 자세는 접미사 없는 것으로 돌아간다
+    poses = {"joints": {n: {} for n in ["home", "pick_approach", "pick", "lift", "face_A", "face_B", "bin_ok", "bin_human",
+                                        "pick_approach_white", "pick_white", "lift_white"]},
+             "gripper": {"open": 100.0, "closed": 0.0, "held_white": 40.0}}
+    robot = MockRobot(speed=0, poses=poses)
+    r = Sequencer(robot, FakeSensor(), settle_timeout_s=0.1).run("W1", "t", box_type="white")
+    assert r["state"] == "done" and r["box_type"] == "white", r
+    moves = [c[1] for c in robot.calls if c[0] == "move_to"]
+    assert moves[:4] == ["home", "pick_approach_white", "pick_white", "lift_white"]
+    assert "face_A" in moves and "pick_brown" not in moves
+    assert all(g["threshold_frac"] == 0.2 for g in r["grasp_checks"])  # held_white 40/100 → 기준 절반 0.2
+    r2 = Sequencer(MockRobot(speed=0, poses=poses), FakeSensor(), settle_timeout_s=0.1).run("B1", "t", box_type="brown")
+    assert r2["state"] == "done"  # brown 자세가 없으면 공통 자세로
