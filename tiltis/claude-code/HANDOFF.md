@@ -163,3 +163,17 @@ Gemini 저장 사진을 Colab T4의 SAM으로 분리: 다중 surface positives�
 검증: RGB53, own guard67(1warn), station sequencer+vision_pick65(1warn), sensor native_rgbd/depth/server58(2warn) pass. 마지막 추가 회귀 native_rgbd10 및 preview2 pass, 전체와 별도 결과. own/peer README 및 ../codex/HANDOFF.md에 정확한 명령/시간/증거/실패 수정/남은 항목 기록. 런타임 sensor와 소스의 마지막 preview 폐기 3줄씩만 아직 다르며 자동 덮어쓰기하지 않았다. raw영상/NPZ/로그/가중치/현장보정은 Git에 넣지 않는다.
 
 최종 현장 재확인: 센서 PID가 26888→26644로 바뀌며 잠시 ready=false/연결 거부가 있었고 이후 복구했다. 복구 후 12회 연속 /health에서 ready=true/capture_time_verified=true, 장치 시각 증가, 촬영 age77~294ms 확인(짧은 표본이며 장시간 안정성을 증명하지 않음). strict paired capture의 skew12.54ms 증거는 유지한다. 마지막 8000의 R212711 오류는 no_candidate_box_matched이며 새 SAM/놓기 계획을 Codex가 실행한 결과가 아니다. 8002 최종 own PID26140/exec83974, 현재 3카메라와 저장 사진 SAM을 구별한 화면을 C:/Users/tilti/PAC2026_data/integration_20261009/preview_final.png에 저장했다. post_registration_health_samples.json도 같은 폴더. 서버 소유/상자 배치를 다시 확인하고 실제 실행할 것.
+
+## 2026-10-09 Codex — 상자 빨간 윤곽과 분류 이유 UI
+
+사용자 요청: 기존 Claude 현장 판정은 유지하며 비저블 상자에 빨간 테두리, 웹앱에 테이프 누락 개수/아랫면 결함 등 빨강 분류 이유를 표시. 검사 데이터에는 tape_missing_count_1/bottom_open과 features가 이미 있었지만 UI가 내부 코드를 그대로 표시했다. 실행본 index의 자동 시료 ID 변경을 보존해서 공유 소스에 통합했다.
+
+변경: 공유 station/web/index.html의 독립 PacReasons 블록으로 면별 최신 시도/최종 사유/기록 사유를 표시한다. 검증된 실제 suspect만 누락/아랫면 결함으로 표시하고 미검증·측정 불가·모의·실행 오류를 구분한다. 여러 면에 이어지는 같은 테이프를 합산하지 않는다. 기존 GET inspections API를 재사용하며 DB/규칙/로봇 제어에는 변경 없다. codex/vision_pick/preview_server.py도 같은 JS 블록을 읽고 현재 실행 상태와 별도로 최근 저장 판정을 표시한다.
+
+codex/vision_pick/box_overlay.py는 기존 sensor/rules.py의 CARDBOARD/GREEN 색을 재사용해 /live.jpg의 첫 RGB 480x360 패널에만 빨간 윤곽을 그린다. SAM이 아닌 표시용 색 기반 후보이며, 현재 서로 닿은 여러 상자는 한 영역으로 묶일 수 있다. 빨간선은 불합격 표시가 아니며 파지/판정 입력으로 사용하지 않는다. 열화상/깊이 배열과 원본 입력은 불변이고 JPEG 재압축은 있다. 흰 상자/배경 갈색 물체/가림에 대한 일반 검출 성능을 주장하지 않는다.
+
+검증: Node station/tests/test_reason_presentation.cjs 14 passed(0.50s), Python vision_pick tests/test_preview_server.py + tests/test_box_overlay.py 12 passed/1warning(3.85s). 실제 기록70을 읽어 B면 테이프1개 누락(2/3관측), 웹 이력62에서 C면 아랫면 결함(벌어짐 의심)을 확인. 실제 결함 정확도를 새로 실험한 것이 아니라 기존 판단의 표시 검증이다. 원인 없는 suspect·재검사 우선·중복 합산 금지·측정 불가·미검증·모의·연결 실패·RGB 이외 무변경 회귀 포함.
+
+사용자가 요청한 화면 적용: C:/PAC2026_system/station/web/index.html만 기존 hash 비교 후 백업하고 배포(서버 재시작 불필요). 백업 C:/PAC2026_system/Log/codex_ui_reasons_20261009/index.before.html. 로봇8000/센서8001 코드/보정/프로세스에는 쓰기/중단 없음. 소유 확인된 Codex8002만 재시작(최종PID3576, exec70420). station 카메라는 노트북 localhost에서8002 annotated GET 사용, 실패시 기존 /sensor-live로 복귀. 원격 접속은 기존 원본 영상 유지. 실제 모터 명령/검사 시작 없음. 동시 Claude 실행에서 나온 multiple_boxes/IK실패는 이번 UI 작업의 실행 결과가 아니다.
+
+증거: C:/Users/tilti/PAC2026_data/ui_reasons_20261009 (현재 영상/화면/실제 API 결과), Git에는 미디어·DB·보정·로그 제외. 현재 갈색 상자 윤곽 표시와 이유 설명만 추가했으며 SAM 정렬/새 놓기 guard는 여전히 별도 실기 검증 필요.

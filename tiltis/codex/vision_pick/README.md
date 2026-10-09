@@ -69,3 +69,11 @@ Claude 현장 코드의 턱 TCP 오프셋·높이/접근 조절·가까운 IK �
 `placement.py`는 실제 집기 관절 FK와 관측 상자 윗면/치수로 상자 모서리를 tool frame에 결합하고, 놓기 관절 FK에서 예상 기울기·바닥 높이·분류 영역 전체 포함을 확인한다. `require_flat_placement=true`이면 측정한 placement 설정이 없는 설치를 preflight에서 거부한다. `station_app.py`의 새 제어 진입점에 이 요구를 적용했다. `placement`는 source_id/validated/frame=base_link/units=m, normal_base/plane_d_m, max_tilt_deg, bottom_clearance_m[min,max], zones_xy_m의 ok/human[min_xy,max_xy]가 필요하다. 가상 예시를 현장에 저장하지 않았다.
 
 공유 sequencer는 선택적 capture_held_box/verify_at_release hooks를 연결한다. 재집기의 새 관측을 사용하며, 실패/관절 읽기 오류에서는 집게를 열기 전에 기존 stop 경로로 끝낸다. 가상 테스트에서 옆 자세·높은 낙하·분류 영역 이탈·미측정 설정 거부와 실제 release 전 검사 순서를 확인했다. box slip/접촉/놓은 뒤 안정성은 이 FK 모델로 증명하지 못한다. 기존 실기 8000은 교체하거나 재시작하지 않아 이 guard가 적용된 상태가 아니다.
+
+## 카메라 윤곽 및 검사 이유 표시
+
+8002는 기존 8001의 합성 영상을 읽어 첫 RGB 패널의 갈색 상자 후보를 빨간 윤곽으로 표시한다. 기존 골판지/초록 테이프 색 기준을 재사용하는 표시 전용 기능이며 SAM 결과나 불합격 색, 제어 목표가 아니다. 서로 붙은 상자는 하나의 영역으로 묶일 수 있고 흰 상자는 지원하지 않는다. RGB 패널 규격이 바뀌면 box_overlay.annotate_jpeg의 rgb_width(현재480)를 함께 변경해야 한다.
+
+8000의 기존 reasons/features를 웹의 PacReasons로 설명한다. 예: 테이프 1개 누락(2/3개 관측), 아랫면 결함(벌어짐 의심). 미검증/측정 불가를 결함으로 바꾸지 않으며 면간 누락 개수를 합산하지 않는다. 8002의 최근 판정은 저장 기록이고 현재 라이브 물체와 자동 연결하지 않는다. 현재 실행 오류는 별도로 표시한다. station/web/index.html은 FileResponse라 UI 파일 적용 후 새로고침만 필요하고 로봇 서버 재시작은 필요 없다. 노트북 station 카메라는8002를 사용하고 실패하면 원본 /sensor-live로 돌아간다. 기본8000/8001 포트 기준이며 원격 브라우저는 원본 영상을 사용한다.
+
+UI 테스트: `node --test station/tests/test_reason_presentation.cjs` (공유 시스템 폴더). Python 표시/API 테스트: `python -m pytest tests/test_box_overlay.py tests/test_preview_server.py -q --rootdir . --confcutdir . -o addopts=` (이 폴더).

@@ -8,28 +8,59 @@ from pathlib import Path
 
 from bootstrap import station_path
 
-station_path()
+STATION_SOURCE = station_path()
 import grasp
 import handeye
 from guard import GuardedVisionPicker, observation_error
 from sensor_client import SensorClient
 
-PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>PAC 통합 확인</title><style>body{font:16px system-ui;background:#111827;color:#e5e7eb;margin:24px}h1{font-size:24px}img{width:100%;max-width:1440px}button{padding:12px;font-size:16px}pre{white-space:pre-wrap;background:#1f2937;padding:16px}p{line-height:1.6}</style>
-<h1>PAC — 통합 코드 · 현재 카메라</h1>
-<p>로봇 이동 없음 · RGB / 열화상 / 깊이 화면 · 상자 위치/방향 및 준비 상태 확인</p>
-<p>이 화면의 준비 검사는 새 각도 정렬 코드에 적용됩니다. 기존 실기 설정과 실행 기록은 <a href="http://127.0.0.1:8000/">8000 스테이션</a>에서 확인합니다. 별도 XYZ 범위가 없다는 결과는 기존 반경 제한·보정·성공 기록이 없다는 뜻이 아닙니다.</p>
-<img id="cam" src="/camera.jpg"><p><button onclick="check()">상자 위치·방향 확인</button></p>
-<details><summary>현재 상자 · 제어 준비 상세</summary><pre id="result">확인 버튼을 누르세요.</pre></details>
-<h2>SAM 윗면 — 저장 사진 검증</h2>
+PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PAC 카메라 · 검사 결과</title><style>body{font:16px system-ui;background:#111827;color:#e5e7eb;margin:24px}main{max-width:1506px;margin:auto}h1{font-size:24px}img{width:100%;display:block}button{padding:12px;font-size:16px}pre{white-space:pre-wrap;background:#1f2937;padding:16px}p{line-height:1.6}a{color:#93c5fd}.card{background:#1f2937;border:1px solid #475569;border-radius:12px;padding:18px;margin:18px 0}.decision{font-size:23px;font-weight:700;margin:10px 0}.decision.red{color:#fca5a5}.decision.blue{color:#93c5fd}.note{font-size:14px;color:#cbd5e1}#decisionReasons{padding-left:22px;line-height:1.9}details{margin:14px 0}</style>
+<main><h1>PAC — 카메라 · 검사 결과</h1>
+<p>RGB / 열화상 / 깊이 실시간 화면 · <a href="http://127.0.0.1:8000/">검사 스테이션 열기</a></p>
+<img id="cam" alt="RGB · 열화상 · 깊이 실시간 카메라" src="/camera.jpg">
+<p class="note" id="cameraNote">빨간 테두리: RGB에서 찾은 갈색 상자 후보 · 판정 색상과 별개입니다.</p>
+<section class="card" aria-live="polite"><h2>최근 검사 판정</h2><p class="note" id="stationState">스테이션 연결 중…</p>
+<details id="stationErrorBox" hidden><summary>현재 실행 오류 상세</summary><p class="note" id="stationError"></p></details>
+<div id="decision" class="decision">결과 확인 중…</div><ul id="decisionReasons"></ul>
+<p class="note" id="decisionSource"></p></section>
+<details><summary>상자 위치·방향 및 새 제어 코드 준비 상태</summary>
+<p class="note">새 SAM 각도 정렬 코드의 준비 검사입니다. 실제 실행과 판정은 기존 스테이션 기준입니다.</p>
+<button onclick="check()">상자 위치·방향 확인</button><pre id="result">확인 버튼을 누르세요.</pre></details>
+<details><summary>SAM 윗면 — 저장 사진 검증</summary>
 <p>Colab GPU의 저장 사진 결과입니다. 현재 영상 추적이나 로봇 이동 상태를 뜻하지 않습니다. 영상 변 각도와 로봇 각도는 다릅니다.</p>
-<img src="/sam-preview.png"><details><summary>SAM 사진 검증 상세</summary><pre id="samResult">저장 결과 확인 중…</pre></details>
-<script>setInterval(()=>cam.src='/camera.jpg?t='+Date.now(),1500);
-async function check(){result.textContent='깊이 측정 중…';try{let r=await fetch('/api/preview');result.textContent=JSON.stringify(await r.json(),null,2)}catch(e){result.textContent=String(e)}}check();
-fetch('/api/sam-result').then(r=>r.json()).then(v=>samResult.textContent=JSON.stringify(v,null,2)).catch(e=>samResult.textContent=String(e));</script></html>"""
+<img src="/sam-preview.png"><details><summary>SAM 사진 검증 상세</summary><pre id="samResult">저장 결과 확인 중…</pre></details></details>
+<script src="/inspection-presentation.js"></script><script>
+const cam=document.getElementById('cam');
+function nextCamera(){cam.src='/camera.jpg?t='+Date.now()}
+cam.onload=()=>{document.getElementById('cameraNote').textContent='빨간 테두리: RGB에서 찾은 갈색 상자 후보 · 판정 색상과 별개입니다.';setTimeout(nextCamera,800)};
+cam.onerror=()=>{document.getElementById('cameraNote').textContent='카메라 연결 확인 중…';setTimeout(nextCamera,2000)};
+async function check(){result.textContent='깊이 측정 중…';try{let r=await fetch('/api/preview');result.textContent=JSON.stringify(await r.json(),null,2)}catch(e){result.textContent=String(e)}}
+async function refreshDecision(){
+ const title=document.getElementById('decision'), list=document.getElementById('decisionReasons'), source=document.getElementById('decisionSource');
+ try{
+  const response=await fetch('/api/inspection-summary',{cache:'no-store'});if(!response.ok)throw Error('station unavailable');
+  const data=await response.json();
+  const status=data.status, current=status.current || status.last_result;
+  const stateLabels={idle:'검사 대기',running:'검사 진행 중',saving:'검사 기록 저장 중',done:'최근 실행 완료',error:'최근 실행 오류',aborted:'최근 실행 중단'};
+  document.getElementById('stationState').textContent=(stateLabels[status.state]||'상태 확인 필요')+(current?' · 시료 '+current.specimen_id:'');
+  document.getElementById('stationErrorBox').hidden=!current?.error;
+  document.getElementById('stationError').textContent=current?.error||'';
+  const run=data.decision; list.replaceChildren();title.className='decision';source.textContent='';
+  if(!run){title.textContent='저장된 판정 없음';return}
+  const summary=PacReasons.summarizeRun(run);
+  title.textContent=summary.title;title.className='decision '+(run.bin==='human'?'red':run.bin==='ok'?'blue':'');
+  for(const detail of summary.lines){const li=document.createElement('li');li.textContent=detail;list.appendChild(li)}
+  source.textContent='시료 '+run.specimen_id+' · '+(run.finished_at||run.started_at||'')+' · 저장된 검사 결과 (현재 카메라 화면과 별개)';
+ }catch(e){document.getElementById('stationState').textContent='스테이션 연결 확인 필요';document.getElementById('stationErrorBox').hidden=true;title.textContent='검사 결과를 불러올 수 없습니다';title.className='decision';list.replaceChildren();source.textContent=''}
+ finally{setTimeout(refreshDecision,2500)}
+}
+refreshDecision();
+fetch('/api/sam-result').then(r=>r.json()).then(v=>samResult.textContent=JSON.stringify(v,null,2)).catch(e=>samResult.textContent=String(e));</script></main></html>"""
 
 
-def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None, sam_result_dir=None):
+def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None, sam_result_dir=None,
+                       station_url="http://127.0.0.1:8000"):
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import HTMLResponse, Response
     import httpx
@@ -45,6 +76,33 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
     reader = sensor or SensorClient(sensor_url)
     picker = GuardedVisionPicker(reader, he, dry_run=True, cfg=cfg)
     app = FastAPI(title="PAC integrated preview (no motion)")
+
+    @app.get('/inspection-presentation.js')
+    def inspection_presentation():
+        html = (STATION_SOURCE / 'web/index.html').read_text(encoding='utf-8')
+        start, end = '// PAC_REASON_PRESENTATION_START', '// PAC_REASON_PRESENTATION_END'
+        if start not in html or end not in html:
+            raise HTTPException(503, 'Inspection presentation unavailable')
+        script = html.split(start, 1)[1].split(end, 1)[0]
+        return Response(script, media_type='application/javascript', headers={'Cache-Control':'no-store'})
+
+    @app.get('/api/inspection-summary')
+    def inspection_summary():
+        # Existing station results only. Never calls inspection or motion endpoints.
+        try:
+            base = station_url.rstrip('/')
+            status = httpx.get(base + '/api/status', timeout=3)
+            status.raise_for_status()
+            runs = httpx.get(base + '/api/runs', params={'limit': 30}, timeout=3)
+            runs.raise_for_status()
+            decision = next((dict(r) for r in runs.json() if r.get('final_verdict')), None)
+            if decision:
+                inspections = httpx.get(base + f"/api/runs/{int(decision['id'])}/inspections", timeout=3)
+                inspections.raise_for_status()
+                decision['inspections'] = inspections.json()
+            return {'status': status.json(), 'decision': decision, 'motion_enabled': False}
+        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+            raise HTTPException(503, 'Station result unavailable')
 
     @app.get('/api/sam-result')
     def sam_result():
@@ -67,11 +125,15 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
         return PAGE
 
     @app.get("/camera.jpg")
-    def camera():
+    def camera(specimen_id: str = ''):
         try:
-            r = httpx.get(sensor_url.rstrip("/") + "/live.jpg", timeout=5)
+            r = httpx.get(sensor_url.rstrip("/") + "/live.jpg", params={'specimen_id': specimen_id}, timeout=5)
             r.raise_for_status()
-            return Response(r.content, media_type="image/jpeg")
+            from box_overlay import annotate_jpeg
+            data, count = annotate_jpeg(r.content)
+            return Response(data, media_type="image/jpeg", headers={
+                'Cache-Control': 'no-store', 'X-Box-Candidates': str(count),
+                'X-Overlay-Role': 'display-only-rgb-cardboard'})
         except Exception as e:
             raise HTTPException(503, f"Camera preview unavailable: {type(e).__name__}")
 

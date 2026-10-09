@@ -37,7 +37,13 @@
   .badge.suspect { background:var(--warn); }
   .badge.review { background:var(--gray); }
   .badge.unmeasurable { background:var(--gray); }
-  .reasons { font-size:12.5px; color:var(--mute); margin:2px 0; word-break:break-all; }
+  .reasons { font-size:14px; color:var(--ink); margin:5px 0 8px; white-space:pre-line; overflow-wrap:anywhere; }
+  .decision-reasons { margin-top:10px; padding:12px; border-radius:8px; background:#fff4e4; border:1px solid #e8ce99; }
+  .decision-reasons.defect { background:#fff0f0; border-color:#edb9b9; }
+  .decision-reasons.ok { background:#eaf2ff; border-color:#bdcfea; }
+  .decision-reasons strong { display:block; font-size:18px; margin-bottom:4px; }
+  .decision-reasons ul { margin:5px 0 0; padding-left:20px; }
+  .history-reason { min-width:210px; white-space:pre-line; }
   .final { font-size:18px; font-weight:700; padding:8px; border-radius:8px; margin-top:8px; text-align:center; color:#fff; background:#99a3ad; }
   .final.blue { background:var(--blue); } .final.red { background:var(--warn); }
   .zones { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -63,7 +69,7 @@
       <div class="zone blue"><strong>파랑 영역</strong>정상 판정<br>모든 검사면 이상 미검출</div>
       <div class="zone red"><strong>빨강 영역</strong>불량·확인 필요<br>이상 의심 · 미판정 · 측정 불가</div>
     </div>
-    <p class="note">모든 면을 검사한 뒤 해당 영역으로 옮겨 내려놓습니다. 센서 오류·연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
+    <p class="note">검사 결과에 따라 분류합니다. 이상 발견 시 남은 면 검사를 생략할 수 있으며, 센서 오류·연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
   </div>
 
   <div class="card">
@@ -97,11 +103,15 @@
     <div class="kv"><span>로봇</span><b id="robotMode">-</b></div>
     <div id="error" class="err" hidden></div>
     <div id="final" class="final" hidden></div>
+    <div id="decisionReasons" class="decision-reasons" hidden aria-live="polite">
+      <strong id="decisionTitle"></strong><ul id="decisionList"></ul>
+    </div>
   </div>
 
   <div class="card">
     <h2>실시간 카메라 <button id="liveBtn" type="button" style="font-size:13px;padding:4px 10px;margin-left:8px">켜기</button></h2>
-    <div style="font-size:13px;color:#666">RGB · 열화상 · 깊이(센서에서 켠 경우). 시료 ID를 넣으면 마커 일치 여부를 함께 보여 준다.</div>
+    <div style="font-size:13px;color:#666">RGB · 열화상 · 깊이(센서에서 켠 경우). 빨간 테두리는 갈색 상자 위치 표시이며 불합격 표시와 별개입니다.</div>
+    <p id="outlineStatus" class="note"></p>
     <img id="live" alt="실시간 카메라" hidden style="width:100%;margin-top:8px;border-radius:8px;background:#222">
   </div>
 
@@ -118,7 +128,7 @@
     <h2>기록 <a href="/api/runs.csv" style="font-size:13px;font-weight:400">CSV</a></h2>
     <div class="scroll">
       <table>
-        <thead><tr><th>#</th><th>시료</th><th>판정</th><th>구역</th><th>재촬영</th><th>시간</th><th>상태</th></tr></thead>
+        <thead><tr><th>#</th><th>시료</th><th>판정</th><th>분류 이유</th><th>구역</th><th>재촬영</th><th>시간</th><th>상태</th></tr></thead>
         <tbody id="hist"></tbody>
       </table>
     </div>
@@ -133,24 +143,104 @@ const VERDICT = { review:'미판정·검토', no_anomaly:'이상 미검출', sus
 const BIN = { ok:'파랑 영역', human:'빨강 영역' };
 const BIN_COLOR = { ok:'blue', human:'red' };
 const STATE = { idle:'대기', running:'실행 중', saving:'기록 저장 중', done:'완료', error:'오류', aborted:'중단됨' };
-const REASON = { rgb_blur:'RGB 흐림', occluded:'가림', pose_out_of_range:'자세 이탈',
-  lid_gap_rgb:'뚜껑 틈(RGB)', lwir_local_contrast:'열화상 국소 대비',
-  defect_rules_unavailable:'결함 판정 근거 없음', simulated_inspection:'모의 검사 결과',
-  rgb_dark:'RGB 어두움', lwir_frozen:'열화상 정지', lwir_saturated:'열화상 포화',
-  defect_rules_unvalidated:'규칙 기준값 미검증(기록만)', coolant_absent:'냉매 없음', coolant_uncertain:'냉매 판단 보류',
-  coolant_threshold_missing:'냉매 기준값 없음' };
-// tape_missing_T1 / tape_threshold_missing_T1 같은 동적 이름은 아래에서 변환
-const REASON_DYN = [[/^tape_missing_(\w+)$/, '테이프 누락 $1'], [/^tape_threshold_missing_(\w+)$/, '테이프 기준값 없음 $1']];
-function reasonLabel(r) {
-  if (REASON[r]) return REASON[r];
-  for (const [re, tpl] of REASON_DYN) { const m = r.match(re); if (m) return tpl.replace('$1', m[1]); }
-  return r;
-}
-Object.assign(REASON, { depth_missing:'뎁스 프레임 없음', depth_invalid:'뎁스 무효값', depth_stale:'오래된 뎁스 프레임',
-  depth_before_trigger:'촬영 요청 이전 뎁스', depth_clock_mismatch:'뎁스 시계 불일치',
-  depth_insufficient_valid_pixels:'뎁스 유효 픽셀 부족', sensor_time_skew:'센서 시각 차 초과',
-  sensor_timestamp_missing:'센서 취득 시각 없음', frame_outside_trigger_window:'촬영 요청 범위 밖 프레임',
-  sensor_association_unverified:'동일 시료 연결 조건 미확인' });
+// PAC_REASON_PRESENTATION_START
+// Read-only presentation shared with the camera preview. Never changes a verdict or routing.
+globalThis.PacReasons = (() => {
+  const labels = {
+    rgb_blur:'영상이 흐려 확인 필요', occluded:'상자가 가려져 확인 필요', pose_out_of_range:'검사 자세 이탈',
+    lid_gap_rgb:'뚜껑 틈 의심', lwir_local_contrast:'열화상 분포 이상 의심',
+    defect_rules_unavailable:'결함 판정 근거 없음', simulated_inspection:'모의 검사 결과',
+    rgb_dark:'영상이 어두워 확인 필요', lwir_frozen:'열화상 정지', lwir_saturated:'열화상 포화',
+    defect_rules_unvalidated:'검사 기준값 미검증', coolant_absent:'냉매 누락 의심', coolant_uncertain:'냉매 확인 필요',
+    coolant_threshold_missing:'냉매 기준값 없음', tape_extra_blobs:'테이프 개수 초과·배경 혼입 확인 필요',
+    tape_threshold_missing_count:'테이프 개수 기준값 없음', bottom_open:'아랫면 결함(벌어짐 의심)',
+    bottom_box_not_found:'아랫면 상자를 찾지 못해 확인 필요', bottom_threshold_missing:'아랫면 기준값 없음',
+    depth_missing:'뎁스 프레임 없음', depth_invalid:'뎁스 무효값', depth_stale:'오래된 뎁스 프레임',
+    depth_before_trigger:'촬영 요청 이전 뎁스', depth_clock_mismatch:'뎁스 시계 불일치',
+    depth_insufficient_valid_pixels:'뎁스 유효 픽셀 부족', sensor_time_skew:'센서 시각 차 초과',
+    sensor_timestamp_missing:'센서 취득 시각 없음', frame_outside_trigger_window:'촬영 요청 범위 밖 프레임',
+    sensor_association_unverified:'동일 시료 연결 조건 미확인'
+  };
+  const arr = x => Array.isArray(x) ? x : [];
+  const count = x => Number.isInteger(x) && x >= 0 ? x : null;
+  const unique = x => [...new Set(x)];
+  function reasonLabel(value) {
+    const r = String(value), n = r.match(/^tape_missing_count_([1-9]\d*)$/);
+    if (n) return '테이프 ' + n[1] + '개 누락';
+    if (Object.prototype.hasOwnProperty.call(labels, r)) return labels[r];
+    const missing = r.match(/^tape_missing_(\w+)$/);
+    if (missing) return '테이프 누락(' + missing[1] + ')';
+    const threshold = r.match(/^tape_threshold_missing_(\w+)$/);
+    if (threshold) return '테이프 기준값 없음(' + threshold[1] + ')';
+    return '추가 확인: ' + r;
+  }
+  function describeInspection(i = {}) {
+    i = i || {};
+    const f = i.features || {}, reasons = arr(i.reasons).filter(r => typeof r === 'string');
+    const out = {face:String(i.face || '?'), kind:'review', title:'검사 결과 확인 필요', details:[], rawReasons:reasons};
+    if (i.status !== 'ok') {
+      out.kind = 'error'; out.title = '검사 실패';
+      out.details = [i.error || '센서 응답 또는 저장 상태 확인 필요']; return out;
+    }
+    const simulated = i.sensor_data?.simulated === true || reasons.includes('simulated_inspection');
+    const trusted = f.defect_inspected === true && !simulated && !reasons.includes('defect_rules_unvalidated');
+    const defect = trusted && i.verdict === 'suspect';
+    if (defect) {
+      out.kind = 'defect';
+      const missing = reasons.find(r => /^tape_missing_count_[1-9]\d*$/.test(r));
+      const ids = unique(reasons.filter(r => /^tape_missing_(?!count_)\w+$/.test(r)).map(r => r.slice(13)));
+      const titles = [];
+      if (missing) titles.push(reasonLabel(missing));
+      else if (ids.length) titles.push('테이프 ' + ids.length + '개 누락');
+      for (const r of reasons) if (!r.startsWith('tape_missing_')) titles.push(reasonLabel(r));
+      out.title = unique(titles).join(' · ') || '이상 의심(상세 근거 없음)';
+      if (ids.length) out.details.push('누락 위치: ' + ids.join(', '));
+    } else if (i.verdict === 'no_anomaly' && trusted) {
+      out.kind = 'ok'; out.title = '검사 항목 이상 미검출';
+    } else {
+      // Counts and bottom_open can be recorded before rule validation: never turn them into defects here.
+      const neutral = reasons.filter(r => !r.startsWith('tape_missing_') && !['bottom_open','coolant_absent','lid_gap_rgb','lwir_local_contrast'].includes(r));
+      out.title = (i.verdict === 'unmeasurable' ? '측정 불가' : '확인 필요') +
+        (neutral.length ? ': ' + neutral.map(reasonLabel).join(' · ') : ': 판정 근거 미확정');
+      if (simulated && !neutral.includes('simulated_inspection')) out.details.push('모의 검사 결과');
+    }
+    const expected = count(f.tape_expected), present = count(f.tape_present_count);
+    if (expected !== null && expected > 0) out.details.push('이 면 테이프 ' +
+      (present === null ? '개수 확인 불가' : present + '/' + expected + '개 관측') + (trusted ? '' : ' (미확정)'));
+    if (f.coolant_present === true && trusted) out.details.push('냉매 확인됨');
+    if (f.bottom_open === false && trusted) out.details.push('아랫면 벌어짐 미검출');
+    return out;
+  }
+  function summarizeRun(run = {}, inspections) {
+    run = run || {};
+    if (inspections === undefined) inspections = run.inspections;
+    const latest = new Map();
+    for (const i of arr(inspections)) {
+      if (!i || typeof i !== 'object') continue;
+      const previous = latest.get(i.face);
+      if (!previous || Number(i.attempt || 0) >= Number(previous.attempt || 0)) latest.set(i.face, i);
+    }
+    const faces = [...latest.values()].map(describeInspection);
+    const problems = faces.filter(f => f.kind !== 'ok');
+    let kind = problems.some(f => f.kind === 'defect') ? 'defect' : 'review';
+    let title = '검사 진행 중';
+    if (run.final_verdict) {
+      if (run.bin === 'ok' && run.final_verdict === 'no_anomaly') { kind = 'ok'; title = '파랑 분류: 검사 항목 이상 미검출'; }
+      else if (run.bin === 'human') title = kind === 'defect' ? '빨강 분류 이유' : '빨강 분류: 확인 필요';
+      else title = '검사 결과';
+    } else if (run.error) { kind = 'error'; title = '검사 중단·분류 미완료'; }
+    const lines = problems.map(f => f.face + '면: ' + f.title + (f.details.length ? ' — ' + f.details.join(' · ') : ''));
+    if (!lines.length && run.final_verdict && run.bin === 'ok') lines.push('검사한 항목에서 이상을 찾지 못했습니다.');
+    if (!lines.length && run.final_verdict && run.bin !== 'ok') lines.push('상세 검사 근거가 없어 확인이 필요합니다.');
+    if (run.error) lines.push('실행 오류: ' + run.error);
+    const skipped = arr(run.skipped_faces);
+    if (skipped.length) lines.push(skipped.join('·') + '면 미검사(앞선 이상 발견으로 조기 종료)');
+    // Each face may see the same wrapping tape. Keep per-face counts; never sum a box-wide missing count.
+    return {kind, title, lines, faces};
+  }
+  return {reasonLabel, describeInspection, summarizeRun};
+})();
+// PAC_REASON_PRESENTATION_END
 
 function stepLabel(s) {
   if (!s) return '-';
@@ -173,21 +263,36 @@ async function post(path, body) {
 }
 
 $('start').onclick = () => {
-  const id = $('specimen').value.trim();
-  if (!id) { alert('시료 ID를 입력하세요'); return; }
+  let id = $('specimen').value.trim();
+  if (!id) {  // 비어 있으면 시각으로 자동 번호(현장 10-09: 버튼 하나로 바로 시작)
+    const d = new Date(), z = n => String(n).padStart(2, '0');
+    id = 'R' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds());
+    $('specimen').value = id;
+  }
   post('/api/run', { specimen_id: id, session: $('session').value.trim() || 'demo', box_type: $('boxType').value });
 };
 $('pause').onclick = () => post('/api/pause');
 // 실시간 카메라: 이전 이미지가 다 받아진 뒤에 다음 요청 (요청이 쌓이지 않게)
 let liveOn = false;
+const localPreview = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+let outlinedPreview = localPreview;
 function liveNext() {
   if (!liveOn) return;
-  $('live').src = '/sensor-live?specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
+  const prefix = outlinedPreview ? 'http://127.0.0.1:8002/camera.jpg' : '/sensor-live';
+  $('live').src = prefix + '?specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
 }
-$('live').onload = () => setTimeout(liveNext, 300);
-$('live').onerror = () => setTimeout(liveNext, 2000);
+$('live').onload = () => {
+  $('outlineStatus').textContent = outlinedPreview ? '상자 위치 테두리 표시 중' : '원본 카메라 화면 · 테두리 표시 서버 미연결';
+  setTimeout(liveNext, 800);
+};
+$('live').onerror = () => {
+  outlinedPreview = false; // Preview service failure must not hide the existing sensor feed.
+  $('outlineStatus').textContent = '원본 카메라 연결 확인 중…';
+  setTimeout(liveNext, 1500);
+};
 $('liveBtn').onclick = () => {
   liveOn = !liveOn;
+  if (liveOn) outlinedPreview = localPreview;
   $('liveBtn').textContent = liveOn ? '끄기' : '켜기';
   $('live').hidden = !liveOn;
   liveNext();
@@ -219,15 +324,9 @@ function renderFace(el, face, inspections) {
   badge.textContent = VERDICT[last.verdict] || last.verdict;
   badge.className = 'badge ' + last.verdict;
   const first = list.length > 1 ? '1차: ' + (VERDICT[list[0].verdict] || list[0].verdict) + ' / ' : '';
-  let reasonText = (last.reasons || []).map(reasonLabel).join(', ') || '근거 없음';
-  const ft = last.features || {};
-  if (ft.tape_expected) {  // 면별 테이프 개수: "테이프 2/3 (누락 T2)"
-    const miss = (ft.tape_missing_ids || []).length ? ' (누락 ' + ft.tape_missing_ids.join(', ') + ')' : '';
-    const cnt = (ft.tape_present_count == null ? '?' : ft.tape_present_count) + '/' + ft.tape_expected;
-    reasonText = '테이프 ' + cnt + miss + ' · ' + reasonText;
-  }
-  if (ft.coolant_present !== undefined) reasonText += ' · 냉매 ' + (ft.coolant_present === true ? '있음' : ft.coolant_present === false ? '없음' : '판단보류');
-  reasons.textContent = first + reasonText;
+  const explanation = PacReasons.describeInspection(last);
+  reasons.textContent = first + explanation.title + (explanation.details.length ? '\n' + explanation.details.join(' · ') : '');
+  reasons.title = explanation.rawReasons.join(', ');
   setImg(imgs[0], last.images && last.images.rgb);
   setImg(imgs[1], last.images && last.images.lwir);
   const data = last.sensor_data || {};
@@ -274,6 +373,13 @@ async function poll() {
       fin.hidden = false; fin.className = 'final ' + (BIN_COLOR[run.bin] || '');
       fin.textContent = '최종: ' + (VERDICT[run.final_verdict] || run.final_verdict) + ' → 목표 ' + (BIN[run.bin] || run.bin) + ' / 배치 ' + (BIN[run.placed_bin] || '미확인') + ' / 실행 ' + (run.routing_status || '미기록');
     } else fin.hidden = true;
+    const summary = PacReasons.summarizeRun(run || {});
+    $('decisionReasons').hidden = !run || (!run.final_verdict && !run.error && !summary.lines.length);
+    $('decisionReasons').className = 'decision-reasons ' + summary.kind;
+    $('decisionTitle').textContent = summary.title;
+    $('decisionList').replaceChildren(...summary.lines.map(line => {
+      const li = document.createElement('li'); li.textContent = line; return li;
+    }));
     const ins = run ? run.inspections : [];
     const faces = (s.faces && s.faces.length) ? s.faces : ['A', 'B'];
     for (const f of ['A', 'B', 'C']) {  // 검사하기로 한 면만 카드 표시(FACES=A,B,C면 3장)
@@ -284,18 +390,39 @@ async function poll() {
   } catch (e) { $('state').textContent = '연결 끊김'; $('state').className = 'pill error'; }
 }
 let lastState = null;
+const historyReasons = new Map();
+let historyGeneration = 0;
 
 async function loadHistory() {
+  const generation = ++historyGeneration;
   try {
     const runs = await (await api('/api/runs?limit=30')).json();
+    if (generation !== historyGeneration) return;
     const tb = $('hist'); tb.textContent = '';
+    const pending = [];
     for (const r of runs) {
       const tr = document.createElement('tr');
-      const cells = [r.id, r.specimen_id, VERDICT[r.final_verdict] || '-', (BIN[r.bin] || '-') + ' / 배치 ' + (BIN[r.placed_bin] || '미확인'),
+      const cells = [r.id, r.specimen_id, VERDICT[r.final_verdict] || '-', '', (BIN[r.bin] || '-') + ' / 배치 ' + (BIN[r.placed_bin] || '미확인'),
         r.retakes_used, fmtMs(r.elapsed_ms), STATE[r.state] || r.state];
       for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
+      const reasonCell = tr.children[3]; reasonCell.className = 'history-reason';
+      if (historyReasons.has(r.id)) reasonCell.textContent = historyReasons.get(r.id);
+      else { reasonCell.textContent = '근거 불러오는 중…'; pending.push({run:r, cell:reasonCell}); }
       tb.appendChild(tr);
     }
+    // Existing read-only detail API provides reasons; no schema or controller changes.
+    await Promise.all(Array.from({length:Math.min(3, pending.length)}, async () => {
+      while (pending.length && generation === historyGeneration) {
+        const {run:r, cell} = pending.shift();
+        try {
+          const response = await api('/api/runs/' + encodeURIComponent(r.id) + '/inspections');
+          if (!response.ok) throw new Error('inspection history unavailable');
+          const summary = PacReasons.summarizeRun(r, await response.json());
+          const text = summary.lines.join('\n') || '검사 근거 없음';
+          historyReasons.set(r.id, text); cell.textContent = text;
+        } catch (e) { cell.textContent = '검사 근거 조회 실패'; }
+      }
+    }));
   } catch (e) {}
 }
 
