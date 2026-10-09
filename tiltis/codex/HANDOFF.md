@@ -183,3 +183,11 @@ Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57Z
 검증: RGB/면/깊이 **43 pass (최종 5.26s)**, Codex guard **58 pass / 1 warning (8.32s)**, sensor 전체 **121 pass / 9 warnings (75.81s)**, station 전체 **115 pass / 4 warnings (81.43s)**. 마지막 planner 축 검사를 추가한 뒤 station `tests/test_vision_pick.py` **16 pass / 1 warning (15.51s)**. 가상 위치/회전 변화 → SAM/depth 어댑터 → 실제 공유 guard → IK/FK 계획 통합도 pass. CLI JSON/mask 저장, 노트북 JSON/모든 셀 AST/출력 없음, 실행 GPU 노트북 보관, diff whitespace 확인. 실제 윗면 3D/실기 집기 완료가 아니다. 상대 최신 9ae6d67 HF 업로드 도구/인계는 fast-forward로 보존했으며 실행하지 않았다.
 
 현장 보정 재확인: C:/PAC2026_system/station/calib/handeye.json은 created 18:28:38, n5/RMS8.62/max11.7mm로 갱신되어 이전 15.91mm 기록보다 개선됐다. 파일과 보정/배포/실기 동작은 수정하지 않았다. 잔차 통과가 실제 TCP/FK와 집기 정확도를 보장하지 않는다. Arducam–Gemini2 정합 보정 파일은 확인되지 않았다. 다음은 두 카메라 rectified frame/검증한 공통 촬영 시각과 실측 R/t·내부 파라미터·상자 크기 확보, 실제 3D 윗면 중심/두 축의 정적 화면 검증, 도달성·개구 폭·경로/속도/stop·workspace 확인 후 사용자 승인에 따른 저속 실기다. 카메라 설치 보정은 위치가 달라진 상자를 매번 다시 티칭하는 작업과 다르다.
+
+## 2026-10-09 Claude 최신 실행 코드 참고 검토
+
+사용자가 Claude Code의 코드에도 접근해 참고할 것을 요청했다. 공유 소스와 `C:/PAC2026_system/` 최신 실행본을 직접 비교했다. 검토 당시 HEAD/origin은 3c4cef4로 동일하지만 실행본의 robot/grasp/teach/sequencer 및 sensor locate/server에는 미공유 변경이 있다. 상세 근거와 재사용 조건은 [Claude 폴더의 읽기 전용 검토](../claude-code/reviews/CODEX_RUNTIME_REVIEW_20261009.md)에 기록했다.
+
+기존 SO101 SDK·FK/IK·깊이 수집은 재사용한다. 실행본의 접근 높이·턱 중심 오프셋·가까운 IK 해 선택·실제 관절과 FK/계획 TCP 오차 기록은 유용한 통합 후보다. 실행본은 여전히 radial yaw이며, 공유 상자 3D 축 정렬/preflight/접근 후 재확인/계산 lift 연결이 없으므로 전체 파일로 덮어쓰지 않는다. 관절 안정화 2→5° 완화와 절대 Z 옵션은 실측 검증 없이 적용하지 않는다. 기존 registration은 LWIR↔RGB homography이며 RGB↔depth 3D 정합으로 쓰지 않는다.
+
+이번 변경은 검토 문서와 이 인계뿐이다. Git fetch/status, 해시/정규화 차이·관련 함수 읽기를 수행했고 기능/자동 테스트는 새로 실행하지 않았다. 배포 파일·서버·카메라·COM8·실측 보정/자세에 쓰기나 로봇 명령 없음. 다음은 유용한 후보를 상자 방향/기존 guard를 유지하는 회귀와 함께 통합하고 RGB-depth/TCP/실측 경로·속도·stop을 확인하는 것이다. 실행본의 dry_run은 물리 이동이 있으므로 이번 검토에서 호출하지 않았다.
