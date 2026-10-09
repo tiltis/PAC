@@ -87,6 +87,58 @@ def test_uncertain_station_status_blocks_robot_connection(session):
     assert session.robot.calls == [] and not session.connected
 
 
+def test_windows_delayed_refusal_uses_five_second_budget_and_means_stopped(tmp_path, monkeypatch):
+    session = TeachSession(Robot(), tmp_path / "manual.json")
+    seen = []
+
+    def refused(address, *, timeout):
+        seen.append((address, timeout))
+        # A real Windows 10061 refusal can arrive after ~2 seconds. No sleep/network here.
+        assert timeout >= 5
+        raise ConnectionRefusedError(10061, "No connection could be made")
+
+    monkeypatch.setattr(home_teach.socket, "create_connection", refused)
+    assert session.station_running() is False
+    assert seen == [(("127.0.0.1", 8000), 5)]
+    assert not session.robot.calls
+
+
+def test_station_listener_is_detected_and_probe_socket_closed(tmp_path, monkeypatch):
+    session = TeachSession(Robot(), tmp_path / "manual.json")
+    seen = []
+
+    class Probe:
+        def __enter__(self):
+            seen.append("opened")
+            return self
+
+        def __exit__(self, *args):
+            seen.append("closed")
+
+    def listening(address, *, timeout):
+        assert address == ("127.0.0.1", 8000) and timeout >= 5
+        return Probe()
+
+    monkeypatch.setattr(home_teach.socket, "create_connection", listening)
+    assert session.station_running() is True
+    assert seen == ["opened", "closed"] and not session.robot.calls
+
+
+@pytest.mark.parametrize("error", [TimeoutError("probe timed out"), OSError(10051, "network unavailable")])
+def test_probe_timeout_or_unknown_os_error_never_means_stopped(tmp_path, monkeypatch, error):
+    session = TeachSession(Robot(), tmp_path / "manual.json")
+
+    def unknown(address, *, timeout):
+        assert address == ("127.0.0.1", 8000) and timeout >= 5
+        raise error
+
+    monkeypatch.setattr(home_teach.socket, "create_connection", unknown)
+    with pytest.raises(RuntimeError) as result:
+        session.release(True)
+    assert result.value.__cause__ is error
+    assert not session.connected and not session.robot.calls
+
+
 def test_repeated_release_connects_once_and_hold_delegates_to_current_pose(session):
     assert session.release(True)["free"] is True
     assert session.hold()["free"] is False

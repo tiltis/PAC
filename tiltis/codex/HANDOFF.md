@@ -323,3 +323,10 @@ API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/p
 실제 적용: 기존 8000 listener PID34848의 정체/idle/포트 단독 소유를 재확인한 뒤 사용자 수동 티칭 요청으로 종료했다. 8003 전용 창을 브라우저에 열어 버튼 표시와 초기 미연결 상태를 확인했다. release 버튼에서 8000 서버가 살아 있으면 연결을 거부한다. Codex는 release/capture/hold/save 버튼을 누르지 않았다. 사용자가 두 위치를 가르치는 중에는 8000을 자동 재시작하거나 COM8을 중복 연결하지 말 것. 저장된 관측을 실제 이동에 쓰기 전 경로를 별도 검증해야 한다.
 
 검증: fake robot 및 API tests/test_home_teach.py 31 passed, 1 warning (1.88s); HTML inline JS 문법/중복 ID 및 가짜 fetch 전체 버튼 흐름 통과. 증거/서버 로그/8000 복구 메타데이터/teaching_window.png는 C:/Users/tilti/PAC2026_data/home_teach_20261010. 서버는 같은 폴더 코드로 127.0.0.1:8003에서 실행 중이다. 창을 닫아도 백엔드는 살아 있으므로 완료 후 hold 상태와 포트 소유를 확인해 검사 서버로 돌려놓아야 한다. 새 수직 하강 경로의 실제 이동 완료가 아니다.
+
+
+### 실제 Windows 연결 오류 수정 및 티칭 연결 확인
+
+첫 창의 release는 종료된 localhost8000 확인에 timeout=1s를 써 실제 Windows의 약2.046s/WSAECONNREFUSED(10061) 응답보다 빨리 실패했다. 실제 재현 후 timeout=5s로 수정했고, 연결 여부 미확인/다른 오류는 계속 거부한다. 미연결 티칭 서버만 재시작했다. 중간 재시작이 base Python으로 실행돼 uvicorn 누락을 냈으며 즉시 .venv-station 실행 파일로 교정했다. 최종 listener PID28228, POST /api/release 200, GET status connected=true/free=true/error=null과 브라우저의 HOME 기록 활성화를 실제 확인했다. 사용자 팔 지지 체크와 반복된 연결 요청 범위에서 Codex가 1번을 실행했다. HOME/하강 위치 기록과 저장 버튼은 사용자가 지정하며 Codex가 대신 누르지 않았다. 8000은 멈춰 있고 COM8은 8003 티칭 서버가 단독 소유한다. 증거 connected_teaching.png/server.log.
+
+추가 회귀는 종료된 서버/열린 listener/시간초과/기타 소켓 오류 4개이며 최소5s 확인 시간과 실패시 연결금지를 검증했다. home_teach 전체 35 passed, 1 warning (2.70s). 모의 테스트로 실제모터를 호출하지 않았다.

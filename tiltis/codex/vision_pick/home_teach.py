@@ -26,7 +26,9 @@ class TeachSession:
 
     def station_running(self):
         try:
-            with socket.create_connection(('127.0.0.1', 8000), timeout=1):
+            # Windows localhost refusal can take about 2 seconds. A shorter
+            # timeout incorrectly treats a stopped station as an unknown owner.
+            with socket.create_connection(('127.0.0.1', 8000), timeout=5):
                 return True
         except ConnectionRefusedError:
             return False
