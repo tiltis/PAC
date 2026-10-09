@@ -24,6 +24,13 @@ if base is not None:
     seq.picker = preview_picker
 
 
+@app.get("/api/pick/readiness")
+def pick_readiness():
+    return {"motion_enabled": False, "pick_mode": "vision" if seq.picker is not None else "taught",
+            "grasp_mode": preview_picker.cfg.get("grasp_mode", "top"),
+            "recomputes_pick_each_cycle": seq.picker is not None, "readiness": preview_picker.preflight_ready()}
+
+
 @app.get("/api/pick/preview")
 def pick_preview():
     from fastapi import HTTPException

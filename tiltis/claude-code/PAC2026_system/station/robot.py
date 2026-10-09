@@ -11,6 +11,17 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_POSES = BASE_DIR / "poses.json"
 
 POSE_NAMES = ["home", "pick_approach", "pick", "lift", "face_A", "face_B", "face_C", "bin_ok", "bin_human"]  # face_C는 FACES=A,B,C일 때만 쓴다
+# 상자 종류별 자세: 이름 뒤에 "_white"/"_brown"을 붙여 가르치면(예: pick_white, gripper_held_brown) 검사 시작 때 고른 상자 종류의
+# 자세를 쓰고, 없으면 접미사 없는 자세로 돌아간다. 10-09 시편: 흰 70×70×90, 갈색 80×80×45(집는 높이·그리퍼 폭이 다름)
+BOX_TYPES = ("white", "brown")
+
+
+def split_box_suffix(name: str):
+    """"pick_white" → ("pick", "white"), "pick" → ("pick", "")"""
+    for b in BOX_TYPES:
+        if name.endswith("_" + b):
+            return name[: -len(b) - 1], b
+    return name, ""
 JOINT_KEYS = [
     "shoulder_pan.pos",
     "shoulder_lift.pos",
@@ -36,11 +47,8 @@ def save_poses(poses: dict, path: Path = DEFAULT_POSES) -> None:
 
 
 def empty_poses() -> dict:
-    zero = {k: 0.0 for k in JOINT_KEYS}
-    return {
-        "joints": {name: dict(zero) for name in POSE_NAMES},
-        "gripper": {"open": 0.0, "closed": 0.0},
-    }
+    """빈 자세 파일. 가르치지 않은 자세는 넣지 않는다(0° 자리표시가 있으면 move_to가 실제로 0°로 가 버린다, 10-09 현장에서 발견)."""
+    return {"_note": "teach.py로 기록. 없는 자세는 move_to에서 오류로 멈춘다", "joints": {}, "gripper": {}}
 
 
 class RobotBase:

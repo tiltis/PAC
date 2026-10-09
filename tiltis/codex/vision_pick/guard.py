@@ -152,6 +152,11 @@ class GuardedVisionPicker(grasp.VisionPicker):
         self.limits = limits or Limits()
         self.clock = clock
 
+    def preflight_ready(self):
+        """Static installation checks before even home/open commands; no camera or motor IO."""
+        err = calibration_error(self.he, self.limits) or workspace_error(self.cfg)
+        return {"ok": err is None, "reason": err}
+
     def locate(self):
         first = last = None
         for _ in range(self.limits.samples):
@@ -179,6 +184,11 @@ class GuardedVisionPicker(grasp.VisionPicker):
             return {"ok": False, "reason": err}
         if loc.get("stability_samples", 0) < self.limits.samples:
             return {"ok": False, "reason": "box_stability_not_confirmed"}
+        if self.cfg.get("grasp_mode") == "side":
+            try:
+                grasp.camera_grasp_point(loc, self.cfg)
+            except (KeyError, TypeError, ValueError):
+                return {"ok": False, "reason": "invalid_side_grasp_geometry"}
         try:
             result = super().plan(loc)
         except (KeyError, ValueError, TypeError, FloatingPointError) as e:

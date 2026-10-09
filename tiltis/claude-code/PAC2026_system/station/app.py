@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, field_validator
 
-from robot import DEFAULT_POSES, RobotBase, make_robot
+from robot import BOX_TYPES, DEFAULT_POSES, RobotBase, make_robot
 from advisor import from_env as advisor_from_env
 from sensor_client import SensorClient
 from sequencer import BusyError, Sequencer
@@ -28,6 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent
 class RunReq(BaseModel):
     specimen_id: str
     session: str = "demo"
+    box_type: str = ""  # ""(공통) / "white" / "brown": 상자 종류별로 가르친 자세 세트
 
     @field_validator("specimen_id", "session")
     @classmethod
@@ -89,7 +90,10 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
         if not specimen:
             raise HTTPException(422, "specimen_id가 비어 있다")
         try:
-            seq.start(specimen, req.session.strip() or "demo")
+            box = (req.box_type or "").strip().lower()
+            if box and box not in BOX_TYPES:
+                raise HTTPException(422, f"box_type은 {', '.join(BOX_TYPES)} 중 하나이거나 비워 둔다")
+            seq.start(specimen, req.session.strip() or "demo", box)
         except BusyError:
             raise HTTPException(409, "이미 실행 중")
         return {"ok": True}

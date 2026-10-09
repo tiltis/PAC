@@ -170,3 +170,42 @@ def test_plan_grasp_depth_from_box_height_reaches_both_specimens():
     loc.update(mode="front_face_model", top_height_mm=90.0)
     p = grasp.plan(loc, HE, cfg=dict(grasp.DEFAULTS, tab_height_mm=0.0, grasp_depth_mm=22.0, approach_mm=25.0))
     assert not p["ok"] and "역기구학" in p["reason"]
+
+
+def _side_loc(center_robot_m, height_mm):
+    """로봇 좌표의 상자 바닥 중심 → 센서 front 모드 결과(카메라 좌표)."""
+    inv = R_CAM.T
+    c = np.asarray(center_robot_m, float)
+    return {"found": True, "mode": "front_face_model", "top_height_mm": height_mm, "box_mm": [70, 70, height_mm],
+            "box_center_on_table_cam_mm": (inv @ (c - T_CAM) * 1000).tolist(),
+            "top_center_cam_mm": (inv @ (c + [0, 0, height_mm / 1000] - T_CAM) * 1000).tolist(),
+            "table_normal_cam": (inv @ np.array([0, 0, 1.0])).tolist(), "top_size_mm": None,
+            "short_axis_cam": (inv @ np.array([1.0, 0, 0])).tolist(), "long_axis_cam": (inv @ np.array([0, 1.0, 0])).tolist()}
+
+
+def test_side_grasp_plans_horizontal_approach_in_reach_band():
+    cfg = dict(grasp.DEFAULTS, grasp_mode="side")
+    for r, h in ((0.40, 90.0), (0.42, 45.0), (0.44, 90.0)):
+        p = grasp.plan(_side_loc([r, 0.05, 0.0], h), HE, cfg=cfg)
+        assert p["ok"] and p["grasp_mode"] == "side", (r, h, p)
+        Tg = K.SO101().fk(K.from_lerobot(p["grasp"]))
+        assert abs(Tg[2, 3] - h / 2000) < 0.003            # 집는 점 높이 = 상자 높이 절반
+        assert abs(Tg[2, 2]) < 0.05                          # 도구 축 수평(옆에서 접근)
+        Ta = K.SO101().fk(K.from_lerobot(p["approach"]))
+        assert np.hypot(*Ta[:2, 3]) < np.hypot(*Tg[:2, 3]) - 0.04   # 접근점은 로봇 쪽으로 5cm 뒤
+        Tl = K.SO101().fk(K.from_lerobot(p["lift"]))
+        assert abs(Tl[2, 3] - (Tg[2, 3] + 0.10)) < 0.003     # 들기 10cm
+    # 너무 가까우면(20cm) 수평 접근이 안 풀리므로 이유와 함께 거부
+    p = grasp.plan(_side_loc([0.20, 0.0, 0.0], 90.0), HE, cfg=cfg)
+    assert not p["ok"] and "옆집기 허용" in p["reason"]
+    # 중심·높이가 없는 결과(top 모드)는 거부
+    p = grasp.plan({"found": True, "mode": "top", "table_normal_cam": [0, 0, 1]}, HE, cfg=cfg)
+    assert not p["ok"] and "상자 중심" in p["reason"]
+
+
+def test_box_type_from_depth_height():
+    cfg = dict(grasp.DEFAULTS)
+    assert grasp.box_type_for({"top_height_mm": 91.2}, cfg) == "white"
+    assert grasp.box_type_for({"top_height_mm": 44.0}, cfg) == "brown"
+    assert grasp.box_type_for({"top_height_mm": 70.0}, cfg) == ""
+    assert grasp.box_type_for({}, cfg) == ""

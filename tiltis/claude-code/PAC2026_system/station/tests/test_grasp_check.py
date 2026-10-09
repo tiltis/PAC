@@ -77,3 +77,27 @@ def test_so101_reading_waits_until_gripper_stops():
     robot.current_joints = lambda: {"gripper.pos": next(seq)}
     r = robot.gripper_reading(timeout_s=2.0)
     assert abs(r["pos"] - 30.0) < 0.3 and r["closed"] == 2.0 and r["held"] == 30.0
+
+
+def test_import_grasp_profile_maps_phases_to_box_poses(tmp_path, monkeypatch):
+    # knu19css/PAC box_grasp.py 프로필 → pick_approach_white/pick_white/lift_white + gripper.held_white
+    import import_grasp_profile as imp
+    monkeypatch.setattr(imp, "our_calibration_sha256", lambda robot_id="so101_follower": ("abc", tmp_path / "cal.json"))
+    pose = lambda g: {k: 1.0 for k in imp.JOINT_KEYS} | {"gripper.pos": g}
+    prof = {"box_cm": [7, 7, 9], "robot_id": "x", "calibration_sha256": "abc", "units": "arm_degrees_gripper_percent",
+            "waypoints": [{"phase": p, "pose": pose(g)} for p, g in
+                          (("home", 0), ("open", 90), ("approach", 90), ("grasp", 90), ("close", 38), ("lift", 38),
+                           ("transfer", 38), ("place", 38), ("release", 90), ("retreat", 90), ("return", 0))]}
+    poses = {"joints": {}, "gripper": {}}
+    got = imp.convert(prof, "white", poses)
+    assert set(got) == {"pick_approach_white", "pick_white", "lift_white", "gripper.held_white", "gripper.open"}
+    assert poses["gripper"]["held_white"] == 38 and poses["gripper"]["open"] == 90
+    assert "transfer_white" not in poses["joints"]
+    import pytest as _pt
+    with _pt.raises(ValueError):  # 보정 파일이 다르면 거부
+        imp.convert(dict(prof, calibration_sha256="zzz"), "white", {"joints": {}, "gripper": {}})
+    with _pt.raises(ValueError):  # 상자 크기가 다르면 거부
+        imp.convert(prof, "brown", {"joints": {}, "gripper": {}})
+    monkeypatch.setattr(imp, "our_calibration_sha256", lambda robot_id="so101_follower": (None, tmp_path / "missing.json"))
+    with _pt.raises(ValueError, match="해시"):
+        imp.convert(dict(prof, calibration_sha256=None), "white", {"joints": {}, "gripper": {}})

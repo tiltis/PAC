@@ -118,6 +118,7 @@ class Sequencer:
         self._cur: Optional[dict] = None
         self._last: Optional[dict] = None
         self._thread: Optional[threading.Thread] = None
+        self._vision_lift = None
 
     # --- 외부 제어 ---
     @property
@@ -145,17 +146,18 @@ class Sequencer:
         return {"state": state, "busy": busy, "paused": paused, "faces": list(self.faces),
                 "zones": copy.deepcopy(SORTING_ZONES),
                 "robot_mode": "mock" if getattr(self.robot, "is_mock", False) else "hardware",
+                "pick_mode": "vision" if self.picker is not None else "taught",
                 "current": cur, "last_result": last}
 
-    def start(self, specimen_id: str, session: str) -> None:
-        """백그라운드 스레드에서 실행. 이미 실행 중이면 BusyError."""
-        self._begin(specimen_id, session)
+    def start(self, specimen_id: str, session: str, box_type: str = "") -> None:
+        """백그라운드 스레드에서 실행. 이미 실행 중이면 BusyError. box_type: ""(공통) 또는 "white"/"brown" 자세 세트."""
+        self._begin(specimen_id, session, box_type)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def run(self, specimen_id: str, session: str) -> dict:
+    def run(self, specimen_id: str, session: str, box_type: str = "") -> dict:
         """동기 실행(테스트용). 결과 dict를 반환."""
-        self._begin(specimen_id, session)
+        self._begin(specimen_id, session, box_type)
         return self._run()
 
     def wait(self, timeout: Optional[float] = None) -> None:
@@ -163,14 +165,15 @@ class Sequencer:
             self._thread.join(timeout)
 
     # --- 내부 ---
-    def _begin(self, specimen_id: str, session: str) -> None:
+    def _begin(self, specimen_id: str, session: str, box_type: str = "") -> None:
         with self._lock:
             if self._busy:
                 raise BusyError("이미 실행 중")
             self._busy = True
             self._abort = False
+            self._vision_lift = None
             self._cur = {
-                "specimen_id": specimen_id, "session": session, "state": "running",
+                "specimen_id": specimen_id, "session": session, "box_type": box_type or "", "state": "running",
                 "step": None, "started_at": _now_iso(), "finished_at": None,
                 "final_verdict": None, "bin": None, "destination": None, "decision_status": "pending",
                 "routing_status": "not_started", "placed_bin": None, "retakes_used": 0,
@@ -216,8 +219,18 @@ class Sequencer:
         self._emit(name, "end", ms=ms)
         return result
 
+    def _pose_name(self, base: str) -> str:
+        """상자 종류별 자세(예: pick_white)가 가르쳐져 있으면 그것을, 없으면 접미사 없는 자세를 쓴다."""
+        box = (self._cur or {}).get("box_type") or ""
+        if box:
+            poses = getattr(self.robot, "poses", None) or {}
+            if f"{base}_{box}" in (poses.get("joints") or {}):
+                return f"{base}_{box}"
+        return base
+
     def _move(self, pose: str) -> None:
-        self._step(f"move:{pose}", lambda: self.robot.move_to(pose, self.durations[pose]))
+        name = self._pose_name(pose)
+        self._step(f"move:{name}", lambda: self.robot.move_to(name, self.durations.get(pose, 2.0)))
 
     def _move_joints(self, name: str, target: dict) -> None:
         self._step(f"move:{name}", lambda: self.robot.move_joints(target, self.durations.get(name, 2.0)))
@@ -232,6 +245,12 @@ class Sequencer:
             self._check_grasp("pick")
             return
         loc = self._step("vision:locate", self.picker.locate)
+        if isinstance(loc, dict) and loc.get("found") and not (self._cur or {}).get("box_type"):
+            auto = getattr(self.picker, "box_type_for", lambda l: "")(loc)  # 잰 높이로 흰/갈색 자동 선택 → 그 상자의 gripper_held 기준 사용
+            if auto:
+                with self._lock:
+                    self._cur["box_type"] = auto
+                    self._cur["box_type_source"] = "depth_height"
         plan = self._step("vision:plan", lambda: self.picker.plan(loc))
         with self._lock:
             self._cur["pick"] = {"mode": "vision", "dry_run": bool(self.picker.dry_run),
@@ -239,6 +258,7 @@ class Sequencer:
                                  "plan": {k: v for k, v in plan.items() if k not in ("approach", "grasp", "lift")}}
         if not plan.get("ok"):
             raise SequenceError(f"비전 집기 계획 실패: {plan.get('reason')}")
+        self._vision_lift = dict(plan["lift"])
         self._move_joints("vision_approach", plan["approach"])
         if self.picker.dry_run:
             raise _DryRun()
@@ -266,7 +286,12 @@ class Sequencer:
                 r = None
             if not isinstance(r, dict):
                 raise SequenceError(f"집기 확인 불가({where}): 로봇이 그리퍼 위치를 주지 않음")
-            holding, detail = judge_grasp(r.get("pos"), r.get("open"), r.get("closed"), r.get("held"))
+            held = r.get("held")
+            box = (self._cur or {}).get("box_type") or ""
+            if box:  # 상자 종류별로 가르친 gripper_held_<box>가 있으면 그 값으로 판단
+                g = (getattr(self.robot, "poses", None) or {}).get("gripper") or {}
+                held = g.get(f"held_{box}", held)
+            holding, detail = judge_grasp(r.get("pos"), r.get("open"), r.get("closed"), held)
             with self._lock:
                 self._cur["grasp_checks"].append({"where": where, "holding": holding, **detail})
             if holding is not True:
@@ -354,7 +379,10 @@ class Sequencer:
         entry = self._inspect(face, 0)
         if entry["verdict"] == "unmeasurable" and self._cur["retakes_used"] == 0:
             self._cur["retakes_used"] = 1
-            self._move("lift")
+            if self.picker is None:
+                self._move("lift")
+            else:
+                self._move_joints("vision_lift", self._vision_lift)
             self._move(f"face_{face}")
             self._settle(face)
             self._check_grasp(f"face_{face}")
@@ -362,10 +390,16 @@ class Sequencer:
         return entry["verdict"]
 
     def _sequence(self) -> None:
+        ready = getattr(self.picker, "preflight_ready", None)
+        if ready is not None:
+            check = self._step("vision:ready", ready)
+            if not check.get("ok"):
+                raise SequenceError(f"비전 집기 준비 미완료: {check.get('reason')}")
         self._move("home")
         self._grip("open")
         self._pick()
-        self._move("lift")
+        if self.picker is None:
+            self._move("lift")
         self._check_grasp("lift")
         finals = {}
         for face in self.faces:  # 기본 A·B. 3면 테이프 검사는 FACES=A,B,C로 face_C 자세(손목을 더 돌려 3번째 면)를 추가한다

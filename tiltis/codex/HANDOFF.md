@@ -133,3 +133,27 @@ Codex 수정: `claude-code/PAC2026_system/sensor/server.py`의 깊이 과반 집
 실제 카메라 API의 읽기 전용 미리보기는 `found=false/no_candidate_box_matched`, `motion_enabled=false`였다. 17:06:59의 실제 깊이 프레임을 로컬 데이터 폴더에 저장해 새 검출기로 오프라인 재검사했을 때 화면 위쪽 후보가 나왔으나 bbox `[76,4,242,124]`로 가장자리 검사에 걸리는 위치다. 이 후보를 실제 상자로 확정하거나 로봇 좌표로 승인하지 않았다. 해당 bbox 거부 회귀를 추가했다. 영상/깊이 파일·실측 보정·poses.json은 Git에 넣지 않았다.
 
 실기 미완료: 현재 `C:/PAC2026_system/station/calib/handeye.json` 없음, 실측 workspace 없음, 관절 부호/URDF/도구 기준점 FK 확인·링크 충돌/실제 속도/통신 정지·분류 위치 티칭 미완료. 기존 planner는 위에서 집기이며 현재 guided 옆 집기와 동일하지 않다. 상태–행동 학습 데이터나 실제 집기 완료로 주장하지 않는다. 실행 중 티칭/8000/8001 서버, COM8, 실측 자세/보정 파일을 수정·종료하지 않았다. 다음은 상대의 배포본 guided 변경을 보존하여 소스와 통합하고, 티칭 종료 뒤 물리적 좌표 보정/범위 검증을 수행하는 것이다. 사용자의 실기 승인 전 로봇 모드를 켜지 않는다.
+## 2026-10-09 후속: 작업마다 새 깊이 좌표로 옆 집기
+
+사용자는 상자 위치 변경마다 티칭하지 않고 깊이로 인식해 로봇이 이동할 것을 요청했다. Claude의 실행 폴더 `C:/PAC2026_system/station`에 아직 Git에 없는 옆 집기/상자별 자세/guided/replay 변경이 있어 `03dba0d` 기반 3-way 비교로 기존 `a0176e0` 검증 코드를 보존해 통합했다. 원본 비교 스냅샷은 로컬 `C:/PAC2026_system/Log/codex_side_merge_normalized_20261009_173050`에만 보관했다. 상대 실행 파일과 실측 데이터를 덮어쓰지 않았다.
+
+변경: 공유 `grasp.py`는 기존 옆 집기 IK를 재사용하며 옆 집기 보정/계획도 같은 `camera_grasp_point`를 쓴다. `teach.py`에 guided 15단계와 상자별 replay를 통합하고 설치 시 한 번 보정임을 안내한다. `sequencer.py`가 깊이 높이로 상자 종류를 선택해 기존 그리퍼 기준을 재사용한다. 비전 집기 직후 무조건 저장된 `lift`로 이동하던 부분을 제거했고, 재촬영도 그 작업에서 계산한 들기 목표를 재사용한다. `robot.py`/`app.py`의 상자별 자세/API를 보존했다. 시편 설정은 side이고 `workspace=null`이라 실측 없이 승인되지 않는다. 37~47cm 모델 반경, 5cm 접근, 10cm 들기는 실기 검증값이 아니다. 대각선 105mm이면 임의 회전 갈색 상자까지 정렬된다는 기존 설명은 근거가 부족해 제거했다(80mm 정사각형 대각선 약 113mm).
+
+Codex `guard.py`의 정적 준비 검사는 보정/workspace가 없을 때 홈/그리퍼 명령 전 거부한다. 불량 옆 집기 좌표는 IK 전에 거부한다. `station_app.py`에 읽기 전용 `/api/pick/readiness`를 추가하고 공유 status에 `pick_mode`를 노출했다. 이 모드는 실제 실행 entry에서 선택된 값을 보고하며, taught 모드를 자동 비전으로 오인하지 않는다.
+
+통합 테스트에서 상대 테스트가 참조하는 `import_grasp_profile.py`가 공유 소스에 없는 `ModuleNotFoundError`를 재현했다(112 pass/1 fail). 기존 상대 import 도구도 연결하고, 양쪽 보정 해시가 모두 없는 경우를 같은 보정으로 통과시키던 조건을 수정했다. 실제 프로필/자세/보정 파일은 복사하거나 Git에 넣지 않았다.
+
+재검증:
+
+```powershell
+# claude-code/PAC2026_system 에서
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+# codex/vision_pick 에서
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m pytest tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+```
+
+최종 **스테이션 113 passed, 4 warnings (109.13s)**, **Codex 44 passed, 1 warning (10.04s)**. 이번 변경에 센서 코드는 없으며 직전 센서 117 pass는 재실행 결과와 구별한다. Python AST, JSON, `git diff --check`도 확인했다. 새 테스트는 같은 가상 hand-eye를 재사용해 흰/갈색 각각 (0.40,-0.025), (0.42,0), (0.44,0.025)m에서 3회 연속 자동 집기·3면 검사·파랑 분류를 실행한다. 모의 로봇에는 저장된 pick/lift 자세가 없으며 새 목표에 대한 실제 FK를 3mm 이내로 확인했다. 재촬영의 계산 lift 재사용, 접근 후 이동 거부, 미보정 설치의 이동 전 거부도 통과했다. 가상 workspace를 실기 파일에 저장하지 않았다.
+
+현장 상태: 17:17 저장 `poses.json`은 집기 두 종류·3면·파랑/빨강/그리퍼를 포함하고 FK 검사 없는 상태다. 이번 통합 중 Claude의 COM8 replay가 끝나고 `teach.py --handeye --points 6`로 바뀌어 좌표 보정을 수행 중임을 프로세스로 확인했다. 마지막 확인에서 handeye.json과 실측 workspace는 아직 없었다. 이후 Claude가 배포 teach.py에 점 검증 경고를 추가한 것도 별도 검토했다. 특정 로봇 z=-20~70mm를 모든 설치에 공통 적용하는 부분은 공유에 추가하지 않았으며 해당 실행 파일은 보존했다. 상자 높이 불일치/손 가림과 FK 도구 점을 확인해 보정 점을 수집해야 한다.
+
+다음: 설치 보정 완료 및 FK/관절·도구점/실측 범위·개구 폭/경로 충돌·실제 속도/통신 stop 확인 후 사용자 실기 승인. 그 뒤 기존 센서의 captured_at_s 버전과 전체 팀 폴더를 배포하고 `-PickMode vision` wrapper로 실행하여 상태 모드를 확인한다. 현재 8000은 기존 app entry이며 이 커밋으로 재시작하거나 교체하지 않았다. 작업별 집기 티칭을 반복할 필요는 없지만, 실제 자동 집기 완료·실측 학습 데이터 확보라고 주장하지 않는다.

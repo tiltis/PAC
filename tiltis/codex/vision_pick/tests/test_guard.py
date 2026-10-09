@@ -10,6 +10,7 @@ from bootstrap import station_path
 
 station_path()
 import grasp
+import kinematics as K
 from guard import GuardedVisionPicker, Limits, calibration_error, observation_error
 from robot import MockRobot
 from sequencer import Sequencer
@@ -194,6 +195,9 @@ def test_preview_endpoint_sends_no_motion_commands(monkeypatch, tmp_path):
         result = client.get("/api/pick/preview")
         assert result.status_code == 200 and result.json()["motion_enabled"] is False
         assert result.json()["plan"]["ok"], result.json()
+        ready = client.get("/api/pick/readiness").json()
+        assert ready["pick_mode"] == "taught" and ready["recomputes_pick_each_cycle"] is False
+        assert ready["readiness"]["ok"] and ready["motion_enabled"] is False
         assert not any(c in ("move_to", "move_joints", "gripper") for c, _ in station_app.seq.robot.calls)
 
 
@@ -214,3 +218,107 @@ def test_vision_entry_installs_guard_in_shared_sequencer(monkeypatch, tmp_path):
         assert wrapped.seq.robot.is_mock
     finally:
         configured.state.sequencer.sensor.close()
+
+
+class RelocatingSensor(Sensor):
+    """Synthetic camera: same installation, newly placed box for each cycle."""
+    def set_box(self, xyz, height, retake=False):
+        self.xyz, self.height, self.retake = np.asarray(xyz, float), height, retake
+
+    def locate(self):
+        self.count += 1
+        inv = HE["R"].T
+        base = inv @ (self.xyz - HE["t"]) * 1000
+        top = inv @ (self.xyz + [0, 0, self.height / 1000] - HE["t"]) * 1000
+        return observation(mode="front_face_model", captured_at_s=999.8 + self.count * 0.01,
+                           box_center_on_table_cam_mm=base.tolist(), top_center_cam_mm=top.tolist(),
+                           top_height_mm=self.height, box_mm=[80, 80, self.height])
+
+    def inspect(self, session, specimen_id, face, attempt):
+        verdict = "unmeasurable" if self.retake and face == "A" and attempt == 0 else "no_anomaly"
+        return {"status": "ok", "specimen_id": specimen_id, "face": face, "attempt": attempt,
+                "verdict": verdict, "reasons": [], "features": {"simulated": True,
+                "defect_inspected": True, "defect_rules_version": "test-1"}, "images": {}}
+
+
+class FixedInspectionRobot(MockRobot):
+    def __init__(self):
+        # Only inspection/destination poses. Deliberately no taught pick or lift.
+        super().__init__(speed=0, poses={"joints": {p: {} for p in
+                         ("home", "face_A", "face_B", "face_C", "bin_ok", "bin_human")},
+                         "gripper": {"held_white": 45, "held_brown": 55}})
+
+    def move_to(self, name, duration_s):
+        assert name in self.poses["joints"], f"Unexpected fixed picking pose: {name}"
+        super().move_to(name, duration_s)
+
+
+def side_picker(sensor):
+    # Virtual bounds for model testing, never copied to the physical station.
+    cfg = dict(grasp.DEFAULTS, grasp_mode="side", workspace={"frame": "base_link", "units": "m",
+               "min": [0.30, -0.12, 0.005], "max": [0.48, 0.12, 0.18]})
+    return GuardedVisionPicker(sensor, copy.deepcopy(HE), cfg=cfg, joint_map={}, clock=lambda: 1000.0)
+
+
+@pytest.mark.parametrize("height,box", [(45, "brown"), (90, "white")])
+def test_each_cycle_recomputes_pick_for_shifted_box_without_teaching(height, box):
+    sensor, robot = RelocatingSensor(), FixedInspectionRobot()
+    p = side_picker(sensor)
+    he_before = copy.deepcopy(p.he)
+    seq = Sequencer(robot, sensor, picker=p, faces="A,B,C", settle_timeout_s=0.1)
+    targets = []
+    for i, xy in enumerate(((0.40, -0.025), (0.42, 0.0), (0.44, 0.025))):
+        sensor.set_box([*xy, 0], height)
+        start = len(robot.calls)
+        result = seq.run(f"S{i}", "relocated")
+        assert result["state"] == "done", result["error"]
+        assert result["box_type"] == box and result["box_type_source"] == "depth_height"
+        assert result["placed_bin"] == "ok" and result["destination"]["color"] == "blue"
+        moves = [v for k, v in robot.calls[start:] if k == "move_joints"]
+        assert len(moves) == 3  # current approach, grasp, lift; no saved pick/lift positions
+        target = result["pick"]["plan"]["grasp_point_m"]
+        assert np.allclose(target, [*xy, height / 2000], atol=0.0001)
+        actual = K.SO101().fk(K.from_lerobot(moves[1]))[:3, 3]
+        assert np.linalg.norm(actual - target) < 0.003
+        cam_point, h = grasp.camera_grasp_point(sensor.locate(), p.cfg)
+        assert np.allclose(p.he["R"] @ cam_point / 1000 + p.he["t"], target)
+        assert h == height / 2
+        targets.append(target)
+    assert len({tuple(v) for v in targets}) == 3
+    assert np.array_equal(p.he["R"], he_before["R"]) and np.array_equal(p.he["t"], he_before["t"])
+    assert sensor.count == 21  # 3 locate + 3 after approach + 1 test observation, per cycle
+
+
+def test_vision_retake_uses_current_computed_lift_without_taught_lift():
+    sensor, robot = RelocatingSensor(), FixedInspectionRobot()
+    sensor.set_box([0.42, 0, 0], 45, retake=True)
+    result = Sequencer(robot, sensor, picker=side_picker(sensor), settle_timeout_s=0.1).run("R", "test")
+    assert result["state"] == "done" and result["retakes_used"] == 1, result
+    moves = [v for k, v in robot.calls if k == "move_joints"]
+    assert len(moves) == 4 and moves[3] == moves[2]
+
+
+@pytest.mark.parametrize("missing", ["calibration", "workspace"])
+def test_unready_installation_rejected_before_home_or_gripper_commands(missing):
+    p = picker()
+    if missing == "calibration":
+        p.he = None
+    else:
+        p.cfg.pop("workspace")
+    robot = MockRobot(speed=0)
+    result = Sequencer(robot, p.sensor, picker=p).run("X", "test")
+    assert result["state"] == "error" and robot.stopped
+    assert not any(k in ("move_to", "move_joints", "gripper") for k, _ in robot.calls)
+    assert p.sensor.count == 0
+
+
+def test_side_table_center_must_be_finite_before_ik(monkeypatch):
+    sensor = RelocatingSensor()
+    sensor.set_box([0.42, 0, 0], 45)
+    p = side_picker(sensor)
+    loc = p.locate()
+    loc["box_center_on_table_cam_mm"][0] = float("nan")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid side geometry must not reach IK")
+    monkeypatch.setattr(grasp.VisionPicker, "plan", forbidden)
+    assert p.plan(loc)["reason"] == "invalid_side_grasp_geometry"
