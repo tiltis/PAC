@@ -223,3 +223,12 @@ HOME X/Y·방향을 유지한 하강과 같은 높이의 전진/방향 보간, �
 증거는 C:/Users/tilti/PAC2026_data/home_approach_20261009의 deployment.json, startup_verification.json, deployed_settings.png, station_restart.log 및 runtime_backup_235059에 보관한다. 새 모터/경로 시험이 아니라 배포·연결·UI 상태 확인이며 기존 모의 테스트 결과와 구분한다. 다음은 실제 HOME과 SDK 관절 보정/URDF 대응을 확인한 뒤 유효한 수직 하강 경로를 미리보기로 검증하는 것이다.
 
 추가 읽기 진단: 설치 LeRobot so_follower.py의 calibrate는 wrist_roll을 full_turn_motor로 지정하고 해당 range를 실측하지 않고 0..4095로 저장한다. 현장 파일도 같은 범위이고 DEGREES 정규화는 약 -180..180도를 표현한다. station/kinematics.py는 joint_map.json이 없으면 SDK↔URDF 각도 1:1을 가정하며 URDF 손목 범위는 -157.21..162.79도다. 따라서 현재 거부는 드라이버/모델 범위 불일치의 증거이며 실제 기계 위험이나 새 HOME만으로 해결됨을 단정하지 않는다. 실제 영점/방향/기계·케이블 여유 확인 없이 한계를 확대하거나 offset을 만들지 않았다.
+
+
+## 2026-10-10 — 사용자가 직접 HOME/하강 끝 위치를 기록하는 창
+
+사용자가 하강 후 전진을 시작할 위치를 직접 지정하겠다고 요청해 codex/vision_pick/home_teach.py와 home_teach.html을 추가했다. 기존 So101Robot의 connect/current_joints/disable_torque/hold를 재사용한다. 자동 연결/이동 없이 8003에 창을 먼저 열며 사용자가 팔 받침 체크와 해제 버튼을 누른 뒤 연결한다. HOME 관측과 하강 끝 관측을 별도로 기록하고 station/calib/home_path_teaching.json에 원자 저장/이전 기록 백업한다. 모델 범위 밖 관측도 원본 기록은 허용하며 hardware_motion_validated=false다. 기존 poses.json, 보정, 집기 모드와 경로 승인을 바꾸지 않는다. 저장은 토크 고정과 별개이고 현재 자세 고정 버튼을 제공한다.
+
+실제 적용: 기존 8000 listener PID34848의 정체/idle/포트 단독 소유를 재확인한 뒤 사용자 수동 티칭 요청으로 종료했다. 8003 전용 창을 브라우저에 열어 버튼 표시와 초기 미연결 상태를 확인했다. release 버튼에서 8000 서버가 살아 있으면 연결을 거부한다. Codex는 release/capture/hold/save 버튼을 누르지 않았다. 사용자가 두 위치를 가르치는 중에는 8000을 자동 재시작하거나 COM8을 중복 연결하지 말 것. 저장된 관측을 실제 이동에 쓰기 전 경로를 별도 검증해야 한다.
+
+검증: fake robot 및 API tests/test_home_teach.py 31 passed, 1 warning (1.88s); HTML inline JS 문법/중복 ID 및 가짜 fetch 전체 버튼 흐름 통과. 증거/서버 로그/8000 복구 메타데이터/teaching_window.png는 C:/Users/tilti/PAC2026_data/home_teach_20261010. 서버는 같은 폴더 코드로 127.0.0.1:8003에서 실행 중이다. 창을 닫아도 백엔드는 살아 있으므로 완료 후 hold 상태와 포트 소유를 확인해 검사 서버로 돌려놓아야 한다. 새 수직 하강 경로의 실제 이동 완료가 아니다.

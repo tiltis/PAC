@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAC · HOME / 하강 위치 가르치기</title>
+<style>
+@font-face{font-family:Pretendard;font-weight:45 920;font-display:swap;src:url('/fonts/PretendardVariable.woff2') format('woff2')}
+:root{--navy:#0b1d36;--navy2:#13294b;--bg:#f2f4f7;--ink:#0f1b2d;--muted:#6b7789;--line:#e2e7ee;--blue:#1f4fd8;--red:#c42b2b;--green:#127a46}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Pretendard,-apple-system,"Malgun Gothic",sans-serif;letter-spacing:-.01em}header{background:linear-gradient(180deg,var(--navy),var(--navy2));color:white}.top{max-width:1120px;margin:auto;padding:19px 24px;display:flex;align-items:center;gap:13px}.logo{width:42px;height:42px;background:white;color:var(--navy);border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:14px}h1{font-size:21px;margin:0}.sub{font-size:12px;color:#a9b8d0;margin-top:2px}main{max-width:1120px;margin:auto;padding:24px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}.wide{grid-column:1/-1}.intro{margin:0;color:var(--muted);font-size:14px}.card{background:white;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 14px #0f1b2d08;overflow:hidden}.head{padding:16px 20px;border-bottom:1px solid #eef1f5;display:flex;align-items:center;justify-content:space-between;gap:12px}h2{font-size:17px;margin:0}.body{padding:20px}.stack{display:grid;gap:18px}.pill{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:5px 10px;color:#334155;background:#eef1f5}.pill.free{color:#8a6100;background:#fbf2dc}.pill.held{color:var(--green);background:#e5f4ec}button{font:inherit;font-weight:700;font-size:17px;border-radius:9px;border:1px solid transparent;background:var(--blue);color:white;padding:14px 16px;cursor:pointer;width:100%}button:hover:not(:disabled){filter:brightness(1.05)}button:disabled{opacity:.38;cursor:not-allowed}button.secondary{color:#334155;background:white;border-color:var(--line)}button.hold{background:var(--navy)}button.small{font-size:13px;padding:7px 11px;width:auto}.note{font-size:13px;color:var(--muted);margin:10px 0;line-height:1.65}.support{display:flex;gap:10px;align-items:flex-start;border:1px solid #e8d29c;background:#fff9ed;border-radius:9px;padding:13px;margin-bottom:14px;font-size:14px;font-weight:600}.support input{width:20px;height:20px;margin:1px 0;flex:none;accent-color:var(--blue)}.actions{display:grid;gap:14px}.step{border-top:1px solid #eef1f5;padding-top:16px}.saved-pose{margin-top:9px;font-size:13px;color:var(--muted);overflow-wrap:anywhere}.saved-pose.good{color:var(--green)}.route{padding:22px 16px;border-radius:10px;background:#f7f9fc;border:1px solid #e8edf5;display:grid;gap:10px;text-align:center}.route strong{display:block;color:var(--navy);font-size:17px}.route small{font-size:12px;color:var(--muted)}.arrow{color:var(--blue);font-size:25px;line-height:1}.forward{display:flex;align-items:center;justify-content:center;gap:12px}.forward .arrow{font-size:28px}.status{margin:0;padding:14px 16px;border:1px solid var(--line);background:#f7f9fb;border-radius:10px;font-size:14px;white-space:pre-line;overflow-wrap:anywhere}.status.error{color:var(--red);background:#fcebeb;border-color:#f1caca}.status.ok{color:var(--green);background:#e5f4ec;border-color:#cce7d8}.status.warning{color:#8a6100;background:#fbf2dc;border-color:#e8d29c}.file{font:12px/1.6 ui-monospace,monospace;color:var(--muted);overflow-wrap:anywhere;margin:10px 0 0}details{margin-top:14px;font-size:12px;color:var(--muted)}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}.footer-note{margin:0;color:var(--muted);font-size:12px}@media(max-width:850px){main{grid-template-columns:1fr;padding:16px}.top{padding:16px}h1{font-size:18px}.body{padding:16px}.head{padding:14px 16px}}
+</style>
+</head>
+<body>
+<header><div class="top"><div class="logo">PAC</div><div><h1>HOME / 하강 위치 가르치기</h1><div class="sub">손으로 두 위치를 잡고 기록합니다</div></div></div></header>
+<main>
+<p class="intro wide">자동 이동 없이 현재 관절 자세를 기록합니다. 저장 후 경로 계산과 실제 이동 검증은 별도로 진행합니다.</p>
+<div class="stack">
+<section class="card">
+  <div class="head"><h2>손으로 위치 잡기</h2><span id="connection" class="pill">연결 안 됨</span></div>
+  <div class="body">
+    <label class="support"><input id="supported" type="checkbox"><span>지금 팔을 손으로 받치고 있습니다.</span></label>
+    <button id="release" type="button" disabled>1. 팔 받치고 손으로 움직이기</button>
+    <p class="note">누르면 연결 후 모터 힘을 풉니다. 팔을 받친 상태를 유지하고, 손을 놓기 전에 아래의 ‘현재 자세 고정’을 누르세요.</p>
+    <button id="hold" class="hold" type="button" disabled>현재 자세 고정</button>
+    <p class="note">모터 힘이 켜진 팔을 억지로 움직이지 마세요.</p>
+  </div>
+</section>
+<section class="card">
+  <div class="head"><h2>두 위치 기록</h2><button id="refresh" class="small secondary" type="button">상태 확인</button></div>
+  <div class="body actions">
+    <div>
+      <button id="captureHome" type="button" disabled>2. HOME 위치 기록</button>
+      <p class="note">팔을 원하는 HOME 위치에 둔 뒤 누르세요. 기록 버튼은 팔을 움직이지 않습니다.</p>
+      <div id="homeRecord" class="saved-pose">아직 기록하지 않음</div>
+    </div>
+    <div class="step">
+      <button id="captureLower" type="button" disabled>3. 아래로 내린 시작 위치 기록</button>
+      <p class="note">HOME에서 아래로 내린 뒤, 상자를 향해 앞으로 접근하기 직전의 위치를 기록합니다.</p>
+      <div id="lowerRecord" class="saved-pose">아직 기록하지 않음</div>
+    </div>
+    <div class="step">
+      <button id="save" type="button" disabled>4. 두 위치 저장</button>
+      <p class="note">저장은 팔을 고정하지 않습니다. 작업을 마치면 ‘현재 자세 고정’을 누르세요.</p>
+    </div>
+  </div>
+</section>
+</div>
+<div class="stack">
+<section class="card">
+  <div class="head"><h2>어느 위치를 기록하나요?</h2></div>
+  <div class="body">
+    <div class="route" aria-label="HOME에서 아래로 내려온 시작 위치를 기록하고, 이후 상자 방향으로 접근">
+      <div><strong>HOME</strong><small>처음 출발하는 위치</small></div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div><strong>아래로 내린 시작 위치</strong><small>수직 하강이 끝나고 앞으로 움직이기 직전</small></div>
+      <div class="forward"><small>여기서 앞으로 접근</small><span class="arrow" aria-hidden="true">→</span><strong>상자</strong></div>
+    </div>
+    <p class="note">두 번째 기록은 상자를 잡는 위치가 아닙니다. HOME 아래의 출발 높이를 잡아 주세요. 같은 X/Y로 내려갈 수 있는지, 상자로 접근할 수 있는지는 기록 후 모델로 확인합니다.</p>
+  </div>
+</section>
+<section class="card">
+  <div class="head"><h2>기록 상태</h2><span id="savedBadge" class="pill">미저장</span></div>
+  <div class="body">
+    <p id="message" class="status" role="status" aria-live="polite">연결 상태를 확인하고 있습니다.</p>
+    <p id="warning" class="status warning" style="margin-top:12px" hidden></p>
+    <p id="file" class="file" hidden></p>
+    <details><summary>관절 기록 상세</summary><pre id="details"></pre></details>
+  </div>
+</section>
+</div>
+<p class="footer-note wide">이 창에서는 로봇 자동 이동이나 집기 경로 활성화를 실행하지 않습니다.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let state=null,pending=false,lastFile='';
+function tell(text,kind=''){ $('message').textContent=text;$('message').className='status '+kind; }
+function hasPose(value){return !!value && typeof value==='object' && Object.keys(value).length>0;}
+function controls(){
+  const connected=state?.connected===true,free=state?.free===true;
+  $('supported').disabled=pending||free;
+  $('release').disabled=pending||free||!state||!$('supported').checked;
+  $('hold').disabled=pending||!connected||!free;
+  $('captureHome').disabled=pending||!connected;
+  $('captureLower').disabled=pending||!connected||!hasPose(state?.home);
+  $('save').disabled=pending||!connected||!hasPose(state?.home)||!hasPose(state?.lower);
+  $('refresh').disabled=pending;
+}
+function poseLabel(value){
+  if(!hasPose(value))return '아직 기록하지 않음';
+  const xyz=value.tcp_mm;
+  return Array.isArray(xyz)&&xyz.length===3&&xyz.every(Number.isFinite) ? '기록됨 · X/Y/Z '+xyz.map(v=>v.toFixed(1)).join(' / ')+' mm' : '현재 관절 자세 기록됨';
+}
+function render(data){
+  state=data;
+  const free=state.free===true;
+  $('connection').textContent=state.connected ? (free?'손으로 이동 중 · 받침 유지':'연결됨 · 자세 고정') : '연결 안 됨';
+  $('connection').className='pill '+(state.connected?(free?'free':'held'):'');
+  for(const key of ['home','lower']){$(key+'Record').textContent=poseLabel(state[key]);$(key+'Record').className='saved-pose '+(hasPose(state[key])?'good':'');}
+  $('savedBadge').textContent=state.saved===true?'기록 저장됨':'미저장';
+  $('savedBadge').className='pill '+(state.saved===true?'held':'');
+  $('warning').hidden=!state.warning;
+  $('warning').textContent=state.warning || '';
+  if(state.file)lastFile=String(state.file);
+  $('file').textContent=lastFile?'저장 파일: '+lastFile:'';$('file').hidden=!lastFile;
+  $('details').textContent=JSON.stringify({home:state.home,lower:state.lower,saved:state.saved,hardware_motion_validated:state.hardware_motion_validated===true},null,2);
+  controls();
+}
+async function api(path,method='GET',body){
+  const response=await fetch('/api/'+path,{method,cache:'no-store',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  const raw=await response.text();let data;
+  try{data=JSON.parse(raw);}catch(_){throw new Error('서버 응답을 읽지 못했습니다. 상태를 다시 확인해 주세요.');}
+  if(!response.ok){const detail=data.detail||data.error||data.reason;throw new Error(typeof detail==='string'?detail:JSON.stringify(detail||data));}
+  return data;
+}
+async function readStatus(){const data=await api('status');render(data);return data;}
+async function refresh(){
+  if(pending)return;pending=true;controls();
+  try{const data=await readStatus();tell(data.error || (data.connected?(data.free?'팔을 받친 상태로 위치를 잡고 기록해 주세요.':'현재 자세가 고정되어 있습니다.'):'연결 전입니다. 팔을 받친 뒤 1번을 눌러 시작하세요.'),data.error?'error':'');}
+  catch(error){state=null;controls();tell('상태 확인 실패: '+error.message,'error');}
+  finally{pending=false;controls();}
+}
+async function action(path,body,success){
+  if(pending)return;pending=true;controls();tell('처리 중…');
+  let actionError=null,result=null;
+  try{result=await api(path,'POST',body);if(result.ok===false||result.error)throw new Error(result.error||result.reason||'요청을 완료하지 못했습니다.');if(result.file)lastFile=String(result.file);}
+  catch(error){actionError=error;}
+  try{await readStatus();}
+  catch(error){state=null;actionError=actionError||new Error('현재 상태 확인 실패: '+error.message);}
+  if(actionError)tell(actionError.message,'error');
+  else tell(typeof success==='function'?success(result):success,'ok');
+  pending=false;controls();
+}
+$('supported').addEventListener('change',controls);
+$('refresh').addEventListener('click',refresh);
+$('release').addEventListener('click',()=>{
+  if(!$('supported').checked||$('release').disabled)return;
+  action('release',{supported:true},'손으로 움직일 수 있습니다. 팔을 계속 받치고 원하는 위치를 기록해 주세요.');
+});
+$('hold').addEventListener('click',()=>{if(!$('hold').disabled){$('supported').checked=false;action('hold',{},'현재 자세를 고정했습니다.');}});
+$('captureHome').addEventListener('click',()=>{if(!$('captureHome').disabled)action('capture/home',{},'HOME 위치를 기록했습니다. 아래로 내린 시작 위치도 기록해 주세요.');});
+$('captureLower').addEventListener('click',()=>{if(!$('captureLower').disabled)action('capture/lower',{},'아래로 내린 시작 위치를 기록했습니다. 두 위치 저장을 누르세요.');});
+$('save').addEventListener('click',()=>{if(!$('save').disabled)action('save',{},data=>data.hardware_motion_validated===false?'두 위치를 저장했습니다. 실제 이동 검증 전이며 경로는 활성화하지 않았습니다.\n손을 놓기 전 현재 자세를 고정해 주세요.':'두 위치를 저장했습니다. 실제 이동 검증 상태는 별도 확인이 필요합니다.\n손을 놓기 전 현재 자세를 고정해 주세요.');});
+refresh();
+</script>
+</body>
+</html>
