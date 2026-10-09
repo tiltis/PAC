@@ -365,3 +365,8 @@ preview_server.py 안내/헤더 변경, overlay 및 preview API 테스트 합계
 codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_calib.py fit을 재사용한다. 별도 --workspace의 coolant_draft.json만 수정하며 운영 system 하위 경로를 거부한다. init, roi, measure, fit 제공. 원본 열화상 ROI 2개 bounds/겹침, real capture provenance, 면 일치, 중복 촬영/집단 중복, fit 화질 검증과 최소 양쪽3촬영을 확인한다. fit 결과도 실험용 validated=false/deployment_ready=false로 남겨 독립평가를 요구한다. 현재 테이프/밑면 설정, 판정, 카메라/로봇 서버를 수정·재시작하지 않았다. CLI 문서 COOLANT_LAB.md에 촬영조건/경과시간/실온 대조군/섭씨가 아닌 counts와 운영 적용 전제 기록.
 
 실제 tests/test_coolant_lab.py 4 passed (3.94s): ROI/원시스택 검사, 운영경로 거부, peer 함수를 사용하는 CLI end-to-end 합성 -100counts 측정 및 peer rules파일 불변. 현장 workspace C:/Users/tilti/PAC2026_data/coolant_lab_20261010 초기화와 readiness.json 생성. ROI를 임의로 지정하거나 과거 촬영을 냉매 있음으로 라벨링하지 않았다. 냉매 없음 시료, 현장 ROI, 같은 자세 반복 촬영, 별도 평가/최종 통합이 남았다. 실제 냉매 유무 분리 성능/자동 검사 활성화 완료가 아니다.
+
+## 2026-10-10 — 가운데 흰 영역으로 테두리 제한
+사용자가 작업대 전체가 아닌 빨강/파랑 종이 사이의 가운데 흰 영역 상자만 표시하도록 정정했다. box_overlay.central_gap_contains는 동일 RGB에서 검출한 양쪽 종이의 상자 바닥 행 안쪽 경계를 구하고 상자 바닥 폭 전체가 사이에 들어올 때만 허용한다. 종이 누락/겹침/바깥/종이 뒤/경계 걸침은 표시하지 않는다. 이는 2D 화면 필터이며 실제 바닥 접촉이나 깊이 목표 ID를 보장하지 않는다. preview_server는 central_white_only=True를 명시해 웹과 별도창에 동일 적용했다. 기존 단순 ROI API 기본 동작은 별도호출 호환용이며 운영 /camera.jpg는 흰영역제약을 사용한다.
+
+테스트 overlay+preview 36passed,1warning(7.10s). 8002 화면 서버만 확인 후 재시작. 실제 별도3화면에서 가운데가 비고 양쪽색영역에 상자들이 있는 장면의 테두리0개를 확인했다(HTTP200, X-Overlay-Role=display-only-central-white-box). 증거 target_overlay_20261010/central_white_window.jpg. 로봇/센서 서버·좌표·판정 변경 없음.

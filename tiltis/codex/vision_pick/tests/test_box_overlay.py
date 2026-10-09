@@ -168,3 +168,30 @@ def test_ambiguous_jpeg_is_returned_byte_for_byte_without_selecting_largest_box(
 def test_invalid_workspace_roi_is_rejected(roi):
     with pytest.raises(ValueError):
         annotate_collage(_frame(), workspace_roi=roi)
+
+
+@pytest.mark.parametrize('box,expected', [
+    ((205, 200, 275, 280), 1),  # middle white strip
+    ((0, 200, 35, 280), 0),    # white area outside the two papers
+    ((440, 200, 479, 280), 0),
+    ((205, 150, 275, 205), 0), # behind paper strip
+    ((170, 220, 250, 300), 0), # straddles red boundary
+])
+def test_only_central_white_area_is_eligible(box, expected):
+    frame = _frame()
+    cv2.rectangle(frame, (50, 210), (185, 345), (0, 0, 255), -1)
+    cv2.rectangle(frame, (295, 210), (430, 345), (255, 0, 0), -1)
+    x0, y0, x1, y1 = box
+    cv2.rectangle(frame, (x0, y0), (x1, y1), _brown(), -1)
+    annotated, count = annotate_collage(frame, central_white_only=True)
+    assert count == expected
+    assert np.array_equal(annotated[:, 480:], frame[:, 480:])
+    if not expected:
+        assert np.array_equal(annotated, frame)
+
+
+def test_missing_paper_does_not_fall_back_to_whole_table():
+    frame = _frame()
+    cv2.rectangle(frame, (205, 200), (275, 280), _brown(), -1)
+    cv2.rectangle(frame, (50, 210), (185, 345), (0, 0, 255), -1)
+    assert annotate_collage(frame, central_white_only=True)[1] == 0

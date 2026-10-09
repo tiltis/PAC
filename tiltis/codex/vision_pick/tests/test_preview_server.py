@@ -78,6 +78,8 @@ def test_camera_outlines_one_table_box_without_polling_robot_or_depth_locator(tm
     import numpy as np
     image = np.full((360, 1506, 3), 225, np.uint8)
     brown = tuple(int(v) for v in cv2.cvtColor(np.uint8([[[15, 115, 180]]]), cv2.COLOR_HSV2BGR)[0, 0])
+    cv2.rectangle(image, (10, 170), (170, 350), (0, 0, 255), -1)
+    cv2.rectangle(image, (310, 170), (479, 350), (255, 0, 0), -1)
     cv2.rectangle(image, (200, 190), (280, 270), brown, -1)
     cv2.rectangle(image, (40, 40), (120, 100), brown, -1)
     ok, jpeg = cv2.imencode('.jpg', image)
@@ -92,5 +94,5 @@ def test_camera_outlines_one_table_box_without_polling_robot_or_depth_locator(tm
     result = client.get('/camera.jpg')
     assert result.status_code == 200
     assert result.headers['x-box-candidates'] == '1'
-    assert result.headers['x-overlay-role'] == 'display-only-single-rgb-box'
+    assert result.headers['x-overlay-role'] == 'display-only-central-white-box'
     assert calls == ['http://127.0.0.1:8001/live.jpg']

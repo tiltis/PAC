@@ -103,7 +103,30 @@ def cardboard_outlines(rgb_bgr):
     return sorted(outlines, key=lambda p: cv2.boundingRect(p)[0])
 
 
-def single_target_outline(rgb_bgr, workspace_roi=DISPLAY_WORKSPACE_ROI):
+def central_gap_contains(zones, bbox, shape):
+    """Require the box's base width to lie between both destination papers.
+
+    Evaluate inner paper edges at the box's base row to follow perspective.
+    Missing/overlapping papers do not define a usable central white region.
+    This is a 2-D display constraint, not evidence of contact with the table.
+    """
+    if set(zones) != {"red", "blue"}:
+        return False
+    x, y, w, h = bbox
+    row = y + h - 1
+    spans = []
+    for hull in zones.values():
+        mask = np.zeros(shape[:2], np.uint8)
+        cv2.fillConvexPoly(mask, hull, 1)
+        columns = np.flatnonzero(mask[row])
+        if not len(columns):
+            return False
+        spans.append((int(columns[0]), int(columns[-1])))
+    left, right = sorted(spans)
+    return left[1] < x and x + w - 1 < right[0]
+
+
+def single_target_outline(rgb_bgr, workspace_roi=DISPLAY_WORKSPACE_ROI, central_white_only=False):
     """Return zero or one display contour; never pick the largest of many.
 
     The normalized ROI excludes the background above this fixed camera's table.
@@ -130,11 +153,13 @@ def single_target_outline(rgb_bgr, workspace_roi=DISPLAY_WORKSPACE_ROI):
         foot = (float(x + w / 2), float(y + h - 1))
         if any(cv2.pointPolygonTest(hull, foot, False) >= 0 for hull in zones.values()):
             continue
+        if central_white_only and not central_gap_contains(zones, (x, y, w, h), rgb_bgr.shape):
+            continue
         eligible.append(outline)
     return eligible if len(eligible) == 1 else []
 
 
-def annotate_collage(collage_bgr, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI):
+def annotate_collage(collage_bgr, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI, central_white_only=False):
     """Return a copied BGR collage and 0/1 count; only its RGB panel changes.
 
     The sensor live.jpg currently puts the 480x360 Arducam panel first. Callers
@@ -149,14 +174,14 @@ def annotate_collage(collage_bgr, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE
         raise ValueError("Expected a uint8 BGR collage with the full RGB panel")
     result = collage_bgr.copy()
     rgb = result[:, :rgb_width]
-    outlines = single_target_outline(rgb, workspace_roi=workspace_roi)
+    outlines = single_target_outline(rgb, workspace_roi=workspace_roi, central_white_only=central_white_only)
     thickness = max(2, int(round(rgb_width / 240)))
     # Drawing into the panel view clips even antialiased strokes at its border.
     cv2.polylines(rgb, outlines, True, (0, 0, 255), thickness, cv2.LINE_AA)
     return result, len(outlines)
 
 
-def annotate_jpeg(jpeg_bytes, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI):
+def annotate_jpeg(jpeg_bytes, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI, central_white_only=False):
     """Return (display JPEG bytes, outlined box count: 0 or 1).
 
     Invalid images raise ValueError so the caller can report an unavailable
@@ -167,7 +192,8 @@ def annotate_jpeg(jpeg_bytes, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI
     image = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("Could not decode preview image")
-    annotated, count = annotate_collage(image, rgb_width=rgb_width, workspace_roi=workspace_roi)
+    annotated, count = annotate_collage(image, rgb_width=rgb_width, workspace_roi=workspace_roi,
+                                      central_white_only=central_white_only)
     if not count:
         return bytes(jpeg_bytes), 0
     ok, encoded = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 92])
