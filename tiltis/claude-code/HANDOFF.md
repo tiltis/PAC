@@ -85,3 +85,8 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 - 변경: station(grasp/robot/sequencer/teach/web), sensor(locate/rules/server), 리플레이 bat, handeye.json·poses.json, sh 실행 스크립트 추가
 - 테스트: 이번 커밋에서 새로 실행한 테스트 없음 (작업 중 코드 공유용 스냅샷)
 - 남은 일: 실제 로봇에서 grasp/sequencer 검증
+
+## 2026-10-09 Colab 학습 노트북 (tiltis)
+- 추가: PAC2026_system/colab/train_lerobot_colab.ipynb (Colab Pro+ GPU에서 LeRobot 정책 학습, Drive 체크포인트, HF Hub 업로드)
+- 테스트: Colab에서 아직 실행 안 함
+- 남은 일: DATASET_REPO_ID를 실제 데이터셋으로 바꾸고 첫 실행 확인. 팀 계정 비번은 저장소에 적지 말 것
