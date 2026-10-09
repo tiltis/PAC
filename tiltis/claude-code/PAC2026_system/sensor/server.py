@@ -148,7 +148,10 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
             t = f.received_at_s
             stack.append(f.raw.astype(np.float32) * f.scale_mm)
         arr = np.stack(stack)
-        mm = np.where((arr > 0).sum(0) >= max(1, len(stack) // 2 + 1), np.median(np.where(arr > 0, arr, np.nan), axis=0), 0)
+        valid = np.isfinite(arr) & (arr > 0)
+        # 무효 깊이를 중앙값 계산에서 제외한다. 일반 median은 NaN 하나만 있어도 유효한 과반까지 지운다.
+        median = np.ma.median(np.ma.array(arr, mask=~valid), axis=0).filled(0)
+        mm = np.where(valid.sum(0) >= max(1, len(stack) // 2 + 1), median, 0)
         if save_debug:  # 현장 진단: 이 깊이 영상을 저장해 두고 나중에 locate를 다시 돌려 볼 수 있다
             dbg_dir = DEFAULT_DATA_ROOT / "locate_debug"
             dbg_dir.mkdir(parents=True, exist_ok=True)

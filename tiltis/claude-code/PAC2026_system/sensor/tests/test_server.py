@@ -170,3 +170,39 @@ def test_object_endpoints_with_fake_rig(tmp_path, monkeypatch):
 def test_object_locate_requires_depth(tmp_path):
     with client(tmp_path) as c:
         assert c.get("/object/locate").status_code == 409
+
+
+@pytest.mark.parametrize("samples, expected_mm", [
+    ([400, 401, 0, 399, 0], 400),  # 유효한 3/5 프레임의 중앙값을 유지
+    ([400, 0, 0, 399, 0], 0),    # 유효 깊이가 과반 미만이면 거부
+    ([400, 401, 398, 399, 402], 400),
+    ([0, 0, 0, 0, 0], 0),
+])
+def test_object_locate_aggregates_only_valid_depth(tmp_path, monkeypatch, samples, expected_mm):
+    from types import SimpleNamespace
+    from test_sensor_evidence import FakeDepth, sensor_app
+
+    class SampleDepth(FakeDepth):
+        intrinsics = {"fx": 1.0, "fy": 1.0, "cx": 0.0, "cy": 0.0}
+
+        def __init__(self):
+            super().__init__()
+            self.samples = iter(samples)
+
+        def next_after(self, requested):
+            return SimpleNamespace(raw=np.full((8, 10), next(self.samples), np.uint16),
+                                   scale_mm=1.0, received_at_s=requested + 0.01)
+
+    received = []
+
+    def inspect_depth(mm, *args, **kwargs):
+        received.append(mm.copy())
+        return {"found": False, "reason": "synthetic_aggregation_test"}
+
+    monkeypatch.setattr(server.locate, "locate_box_front_any", inspect_depth)
+    with TestClient(sensor_app(tmp_path, SampleDepth())) as c:
+        response = c.get("/object/locate?frames=5")
+        assert response.status_code == 200
+        assert response.json()["frames"] == 5
+    assert len(received) == 1
+    np.testing.assert_array_equal(received[0], np.full((8, 10), expected_mm))
