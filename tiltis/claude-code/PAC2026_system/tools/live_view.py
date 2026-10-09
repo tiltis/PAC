@@ -1,6 +1,6 @@
 """센서 서버가 켜진 상태에서 실시간 3화면(RGB·열화상·깊이)을 이 PC 창으로 띄운다.
 
-    .venv-sensor\\Scripts\\python tools\\live_view.py            # http://127.0.0.1:8001/live.jpg
+    .venv-sensor\\Scripts\\python tools\\live_view.py            # 테두리 포함 http://127.0.0.1:8002/camera.jpg
     .venv-sensor\\Scripts\\python tools\\live_view.py --url http://<센서IP>:8001/live.jpg
 창에서 q 또는 Esc로 닫는다. 서버가 카메라를 쥐고 있으므로 capture_app과 달리 서버와 같이 쓸 수 있다.
 """
@@ -12,13 +12,16 @@ import cv2
 import numpy as np
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--url", default="http://127.0.0.1:8001/live.jpg")
+ap.add_argument("--url", default="http://127.0.0.1:8002/camera.jpg")
 ap.add_argument("--fps", type=float, default=5.0)
+ap.add_argument("--position", type=int, nargs=2, metavar=("X", "Y"), help="Display window position")
 a = ap.parse_args()
 
 WIN = "PAC2026 Live RGB-LWIR-Depth (q: close)"
 cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
 cv2.resizeWindow(WIN, 1500, 360)
+if a.position is not None:
+    cv2.moveWindow(WIN, *a.position)
 last_err = None
 while True:
     t0 = time.time()
