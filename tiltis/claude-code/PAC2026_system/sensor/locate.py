@@ -43,7 +43,7 @@ def fit_plane(pts, rng, iters=300, tol=6.0):
 
 
 def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=300, seed=0, downsample=1, jump_mm=25.0,
-               min_short_mm=20.0, expected_h=None, height_tol_mm=15.0, table_roi=None):
+               min_short_mm=20.0, expected_h=None, height_tol_mm=15.0, table_roi=None, object_mask=None):
     """mm: 깊이(mm, 0 또는 nan=무효). pick_roi: 상자 탐색 픽셀 [x0, y0, x1, y1] (기본: 전체 화면).
     table_roi: 책상 평면을 맞출 영역(기본: 화면 아래쪽 45%). 탐색 영역과 별도로 지정한다.
     downsample: 2면 가로세로 절반(1280×800 → 640×400)으로 계산해 약 4배 빠르다(노트북 25~58초 → 수 초, 10-08).
@@ -51,10 +51,16 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
     near_far: 이 거리(mm) 밖의 점은 무시. 상자 뒤 벽·가구가 화면에서 상자와 붙어 한 덩어리가 되는 것을 막으려면
     far를 상자 거리 + 20cm 정도로 좁힌다(10-08 실측: 벽 75cm가 상자 42cm와 합쳐져 거부됨).
     결과의 "_internal"(마스크·좌표 배열)은 locate_box_front가 쓴다. 밖으로 보낼 때는 public()으로 뺀다."""
+    if object_mask is not None:
+        object_mask = np.asarray(object_mask)
+        if object_mask.dtype != np.bool_ or object_mask.shape != mm.shape or not object_mask.any():
+            raise ValueError("object mask must be nonempty boolean in native depth pixels")
     mm = np.where(np.isfinite(mm), mm, 0).astype(np.float64)
     k = max(1, int(downsample))
     if k > 1:
         mm = mm[::k, ::k]
+        if object_mask is not None:
+            object_mask = object_mask[::k, ::k]
         intr = {"fx": intr["fx"] / k, "fy": intr["fy"] / k, "cx": intr["cx"] / k, "cy": intr["cy"] / k}
         if pick_roi:
             pick_roi = [int(round(v / k)) for v in pick_roi]
@@ -83,6 +89,8 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
     n, d, n_in = fit_plane(sub, rng)
     h = P @ n + d
     box = valid & roi & (h > min_h) & (h < max_h)
+    if object_mask is not None:
+        box &= object_mask  # SAM association restricts objects, never the table plane fit.
     if jump_mm:  # 이웃 픽셀과 깊이가 크게 다른 경계를 끊어, 화면에서 붙어 보이는 뒤쪽 선반·벽과 상자가 한 덩어리로 묶이지 않게 한다
         gx = np.abs(np.diff(mm, axis=1, append=mm[:, -1:]))
         gy = np.abs(np.diff(mm, axis=0, append=mm[-1:, :]))

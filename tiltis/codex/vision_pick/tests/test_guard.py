@@ -230,9 +230,15 @@ class RelocatingSensor(Sensor):
         inv = HE["R"].T
         base = inv @ (self.xyz - HE["t"]) * 1000
         top = inv @ (self.xyz + [0, 0, self.height / 1000] - HE["t"]) * 1000
+        # Reachable SO101 side poses: a box edge points radially. Arbitrary
+        # rotated boxes are tested separately and must be refused if IK fails.
+        radial = np.array([*self.xyz[:2], 0.0])
+        radial /= np.linalg.norm(radial)
+        jaw = np.cross([0, 0, 1.0], radial)
         return observation(mode="front_face_model", captured_at_s=999.8 + self.count * 0.01,
                            box_center_on_table_cam_mm=base.tolist(), top_center_cam_mm=top.tolist(),
-                           top_height_mm=self.height, box_mm=[80, 80, self.height])
+                           top_height_mm=self.height, box_mm=[80, 80, self.height],
+                           long_axis_cam=(inv @ radial).tolist(), short_axis_cam=(inv @ jaw).tolist())
 
     def inspect(self, session, specimen_id, face, attempt):
         verdict = "unmeasurable" if self.retake and face == "A" and attempt == 0 else "no_anomaly"

@@ -25,10 +25,10 @@ def build():
          'subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], check=True)\n'
          'Path("/content/pac_rgb").mkdir(exist_ok=True)\n'
          'subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers==5.13.0", '
-         '"huggingface_hub>=1.3,<2", "httpx>=0.28,<1", "Pillow>=10"], check=True)')
+         '"huggingface_hub>=1.3,<2", "httpx>=0.28,<1", "Pillow>=10", "opencv-python-headless>=4.10,<5"], check=True)')
     markdown("## 공유 구현 사용\n아래 파일은 `tiltis/codex/rgb_box`의 구현을 그대로 포함합니다. "
              "수정 시 `make_colab.py`를 다시 실행해 노트북을 갱신하세요.")
-    for name in ("device.py", "detector.py", "segment.py", "source.py"):
+    for name in ("device.py", "detector.py", "segment.py", "source.py", "top_face.py"):
         code(f"%%writefile /content/pac_rgb/{name}\n" + (here / name).read_text(encoding="utf-8"))
     markdown("## 공개 모델 다운로드 및 GPU 로드\n모델 revision 고정, safetensors만 사용. "
              "모델 가중치 로드 시간은 사진별 추론 시간에서 제외합니다.")
@@ -90,7 +90,13 @@ def build():
          '"warmup_excluded": True, "results": summary}\n'
          '(output_dir / "summary.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2, allow_nan=False))\n'
          'print("GPU VALIDATION COMPLETE", manifest["gpu"], "images:", len(summary))')
-    markdown("## 결과 다운로드\nPNG/개별 마스크/JSON/환경·시간 요약을 보관합니다. "
+    markdown("## SAM 면 후보와 영상 각도\n상자 전체 마스크와 윗면은 다릅니다. "
+             "자동 point/negative prompts로 면 후보·사각형·두 영상 변의 각도를 표시합니다. "
+             "테이프나 앞면 후보도 나올 수 있어 RGB 점수로 윗면을 확정하지 않습니다. "
+             "`sam_depth.py`에서 검증된 RGB–depth 정합·동시 촬영·책상 평면과 상자 실측 크기를 확인한 후 "
+             "로봇 방향에 사용할 3D 축을 생성합니다. 출력의 영상 각도는 로봇 yaw가 아닙니다.")
+    code((here / "colab_top_run.py").read_text(encoding="utf-8"))
+    markdown("## 상자 전체 결과 다운로드\nPNG/개별 마스크/JSON/환경·시간 요약을 보관합니다. "
              "노트북 실행 결과에 RGB 사진이 표시되므로 공유하기 전에 출력 내용을 확인하세요. "
              "검증 종료 후 런타임 연결 해제로 GPU 사용을 마칩니다.")
     code('archive = shutil.make_archive("/content/pac_rgb_gpu_results", "zip", output_dir)\nfiles.download(archive)')

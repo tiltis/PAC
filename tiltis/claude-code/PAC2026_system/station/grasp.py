@@ -131,8 +131,45 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
             "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs, "handeye_rms_mm": he.get("rms_mm")}
 
 
+def side_box_alignment(loc, he, grasp_p):
+    """Camera 3D box edges -> base approach/jaw axes. Image angles are not accepted."""
+    normal = np.asarray(loc["table_normal_cam"], float)
+    if normal.shape != (3,) or not np.isfinite(normal).all() or np.linalg.norm(normal) < 1e-6:
+        raise ValueError("invalid camera table normal")
+    normal /= np.linalg.norm(normal)
+    axes = []
+    for key in ("long_axis_cam", "short_axis_cam"):
+        axis = np.asarray(loc[key], float)
+        if axis.shape != (3,) or not np.isfinite(axis).all() or np.linalg.norm(axis) < 1e-6:
+            raise ValueError("invalid camera box axis")
+        if abs(np.dot(axis / np.linalg.norm(axis), normal)) > .1:
+            raise ValueError("box edge is not on the table plane")
+        axis = handeye.vector(he, axis / np.linalg.norm(axis))
+        axis[2] = 0  # side pick uses a horizontal tool approach; table tilt is checked by the planner
+        if np.linalg.norm(axis) < 1e-6:
+            raise ValueError("box axis has no horizontal direction")
+        axes.append(axis / np.linalg.norm(axis))
+    if abs(np.dot(*axes)) > 0.1:
+        raise ValueError("box edges are not orthogonal")
+    radial = np.asarray([grasp_p[0], grasp_p[1], 0.0], float)
+    if not np.isfinite(radial).all() or np.linalg.norm(radial) < 1e-6:
+        raise ValueError("invalid base grasp point")
+    radial /= np.linalg.norm(radial)
+    # Choose the box face closest to the robot; retain its edge-aligned approach and perpendicular jaw axis.
+    approach_index = int(np.argmax([abs(np.dot(a, radial)) for a in axes]))
+    approach, jaw = axes[approach_index].copy(), axes[1 - approach_index].copy()
+    if np.dot(approach, radial) < 0:
+        approach = -approach
+    # Jaws are an undirected line (180 degree symmetry). Keep a consistent sign
+    # so PCA sign flips do not change yaw or the IK starting orientation.
+    if np.dot(jaw, np.cross([0, 0, 1.0], approach)) < 0:
+        jaw = -jaw
+    yaw = float(np.arctan2(jaw[1], jaw[0]))
+    return approach, jaw, yaw, "long" if approach_index == 0 else "short"
+
+
 def plan_side(loc, he, robot, cfg, joint_map=None):
-    """옆집기: 상자 중심(책상 위) + 법선×집는 높이 = 집는 점. 접근은 로봇 쪽에서 수평으로, 닫힘 방향은 접근과 직각(수평)."""
+    """Side pick with approach/jaw directions aligned to measured 3D box edges."""
     if loc.get("top_height_mm") is None or (loc.get("box_center_on_table_cam_mm") is None and loc.get("top_center_cam_mm") is None):
         return {"ok": False, "reason": "옆집기에는 상자 중심·높이(locate 결과)가 필요"}
     if loc.get("box_center_on_table_cam_mm") is None:  # top 모드: 윗면 중심에서 법선×높이만큼 내려 책상 위 중심
@@ -154,13 +191,15 @@ def plan_side(loc, he, robot, cfg, joint_map=None):
     lo, hi = cfg["side_reach_r_m"]
     if not lo <= r <= hi:
         return {"ok": False, "reason": f"로봇에서 수평 거리 {r * 1000:.0f}mm: 옆집기 허용 {lo * 1000:.0f}~{hi * 1000:.0f}mm 밖(상자를 더 {'멀리' if r < lo else '가까이'})"}
-    radial = horiz / r
-    approach_p = grasp_p - radial * cfg["side_approach_mm"] / 1000.0
+    try:
+        approach_axis, jaw_axis, yaw, face_axis = side_box_alignment(loc, he, grasp_p)
+    except (KeyError, TypeError, ValueError) as e:
+        return {"ok": False, "reason": f"상자 방향 확인 실패: {e}"}
+    approach_p = grasp_p - approach_axis * cfg["side_approach_mm"] / 1000.0
     lift_p = grasp_p + n * cfg["side_lift_mm"] / 1000.0
-    yaw = float(np.arctan2(radial[1], radial[0]) + np.pi / 2)  # 닫힘 방향 = 접근과 직각. 실제 개구/회전 허용 범위는 검증한다.
     qs, seed = {}, None
     for name, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p)):
-        q = robot.ik(p, down=radial, yaw=yaw, q0=seed)
+        q = robot.ik(p, down=approach_axis, yaw=yaw, q0=seed)
         if q is None:
             return {"ok": False, "reason": f"{name} 위치({p[0]*1000:.0f}, {p[1]*1000:.0f}, {p[2]*1000:.0f})mm 역기구학 해 없음(옆집기)"}
         qs[name] = q
@@ -168,12 +207,15 @@ def plan_side(loc, he, robot, cfg, joint_map=None):
     jump = np.degrees(np.abs(qs["grasp"] - qs["approach"])).max()
     if jump > cfg["max_joint_jump_deg"]:
         return {"ok": False, "reason": f"접근→집기 관절 변화 {jump:.0f}°가 너무 큼(자세가 뒤집힌 해)"}
-    errs = {k: [round(v, 2) for v in robot.error(qs[k], p, radial, np.array([np.cos(yaw), np.sin(yaw), 0]))]
+    errs = {k: [round(v, 2) for v in robot.error(qs[k], p, approach_axis, jaw_axis)]
             for k, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p))}
     return {"ok": True, "grasp_mode": "side", "approach": K.to_lerobot(qs["approach"], joint_map), "grasp": K.to_lerobot(qs["grasp"], joint_map),
             "lift": K.to_lerobot(qs["lift"], joint_map),
             "grasp_point_m": grasp_p.round(4).tolist(), "grasp_height_mm": round(h_mm, 1), "radius_mm": round(r * 1000, 1),
-            "yaw_deg": round(np.degrees(yaw), 1), "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs,
+            "yaw_deg": round(np.degrees(yaw), 1), "orientation_source": "depth_camera_box_axes",
+            "approach_axis_base": approach_axis.round(6).tolist(), "jaw_axis_base": jaw_axis.round(6).tolist(),
+            "approach_box_axis": face_axis,
+            "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs,
             "handeye_rms_mm": he.get("rms_mm")}
 
 

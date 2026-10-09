@@ -99,3 +99,11 @@ c2aec11 스냅샷에서 prior guard 연결이 빠져 8개 회귀 실패를 재�
 ## 2026-10-09 촬영 샘플 HF 업로드 스크립트 (tiltis)
 - 추가: tools/upload_captures_hf.py — PAC2026_data(station.db 제외)를 HF 비공개 데이터셋 tiltis/pac2026_sensor_captures로 업로드
 - 테스트: 아직 실행 안 함 (로컬 HF 로그인 필요)
+
+## 2026-10-09 Codex SAM 윗면/깊이 축/집게 방향 후속
+
+사용자 요청에 따라 `codex/rgb_box/`에 SAM 면 후보·영상 변 각도, `sam_depth.py`의 검증된 RGB–depth 투영/윗면 3D 축과 기존 sensor/guard/IK 어댑터, 오프라인 bundle CLI를 추가했다. Colab T4에서 실제 4장 실행/다운로드/화면 확인. 테이프와 앞면도 나와 RGB 면 점수로 윗면을 확정하지 않으며 깊이 평면/실측 치수가 필요하다. 3D 연결은 가상 입력으로 검증했고 실제 Arducam–Gemini2 정합/paired frame API는 미확보다.
+
+공유 변경 이유/재현: plan_side가 상자 회전을 무시하고 중심 radial 방향으로만 집었다. `station/grasp.py`에서 두 3D 상자 축을 hand-eye 회전하여 접근·집게 축을 정렬하고 도달 불가 자세는 거부한다. 기존 station 1개/guard 2개 테스트가 위치가 바뀌어도 고정 상자 방향으로 항상 성공한다고 가정해 실패했으며, 도달 가능한 변 정렬 장면과 회전/도달 불가 거부를 분리해 수정했다. `sensor/locate.py`에는 선택적 object_mask만 연결해 기존 책상 평면·검사 코드를 재사용했다. 원래의 빈 집기 재시도/3면 검사/분류 기능은 유지했다.
+
+검증: RGB/깊이43, guard58, sensor 전체121, station 전체115 pass. 마지막 축 검증 후 station vision_pick 부분16 pass. 가상 SAM/depth→공유 guard→IK/FK 통합, CLI 저장, 노트북 AST/출력 없음/실행 GPU 결과 보관도 확인. 자세한 계약·명령·제한은 ../codex/rgb_box/README.md 및 ../codex/HANDOFF.md. 런타임 C:/PAC2026_system 교체/서버 재시작/로봇 호출 없음. 최신 handeye 파일은 18:28:38 n5/RMS8.62/max11.7mm(읽기만 수행); 기존 15.91mm 기록은 과거 상태다. TCP/FK·실측 작업 범위·RGB-depth 정합·개구 폭/충돌·실제 속도/stop과 사용자 승인 전 자동 집기 완료로 보고하지 말 것.
