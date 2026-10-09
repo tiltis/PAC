@@ -87,6 +87,14 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
     def index():
         return FileResponse(BASE_DIR / "web" / "index.html")
 
+    @app.get("/fonts/{name}")
+    def font(name: str):
+        """화면 글꼴(Pretendard, OFL). 현장 Wi-Fi에 인터넷이 없어도 휴대폰에서 같은 글꼴로 보이게 직접 준다."""
+        path = BASE_DIR / "web" / "fonts" / name
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.woff2", name) or not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="font/woff2", headers={"Cache-Control": "public, max-age=604800"})
+
     @app.post("/api/run")
     def api_run(req: RunReq):
         specimen = req.specimen_id.strip()

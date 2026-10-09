@@ -205,3 +205,10 @@ HOME X/Y·방향을 유지한 하강과 같은 높이의 전진/방향 보간, �
 테스트: `.venv-station` Python으로 `-m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=` → **273 passed, 4 warnings (126.90s)**. 이후 명령 실패 2개 추가 후 `test_home_path_sequence.py`·`test_transfer_sequence.py`·`test_sequencer.py` 부분 **138 passed, 1 warning (10.30s)**. 마지막 지문/재시작/picker 연결 수정 후 `test_home_approach.py`·`test_home_path_sequence.py`·`test_pick_path_api.py`·`test_pick_path_web.py` 묶음 **77 passed (6.73s)**: 경로 19개·순서 37개·API 19개·UI 2개. 앞선 전체 실행 이후의 부분 검증이고 범위가 중복돼 합산하지 않는다.
 
 현재 HOME 손목 회전 −163.38°는 모델 하한 −157.21° 밖이라 새 경로 활성화가 차단된다. 실제 HOME 또는 모델/보정 일치를 먼저 확인하며 가짜 관절 한계/각도 치환으로 통과시키지 않았다. 이 HOME 기능은 아직 실행본 적용/서버 재시작 전이고, 사용자의 빈 팔 지지·재연결 승인을 기다린다. 이전 22:36 분류 경로 배포와 혼동하지 말 것. 최근 R221924의 두 번 `nothing_held`는 기존 집기 단계 실패이고 새 경로 실기 결과가 아니다. 물리 이동·충돌·추종·파지 성공은 검증하지 않았다.
+
+
+## 2026-10-09 Codex — 최신 스테이션 디자인 동기화
+
+사용자가 바뀐 스테이션 디자인으로 전환을 요청했다. 현재 실행본의 Claude 디자인(Pretendard, 네이비 PAC 상단 바, 흰 카드, 1280px 반응형 2열)을 공유 소스의 station/web/index.html로 가져오고, 기존 /pick-path 링크를 새 상단 바에 유지했다. 실행본의 글꼴 제공 경로를 app.py에 통합하고 PretendardVariable.woff2 및 SIL OFL LICENSE.txt를 함께 보존했다. 집기 경로 설정 pick_path.html도 같은 디자인으로 맞췄으며 모든 ID와 JavaScript는 유지했다(스크립트 SHA-256 전후 동일).
+
+실제 8000 탭을 새로고침해 새 상단 바와 검사/진행/분류/카메라 카드 표시를 확인했다. 실행본 디자인은 이미 적용돼 있어 이번 작업은 서버 재시작이나 로봇/설정 변경을 하지 않았다. HOME 경로 설정 기능의 실기 배포 대기는 그대로다. 화면 증거: C:/Users/tilti/PAC2026_data/station_design_20261009/station_updated.png. 기존 집기 UI 테스트 2 passed (7.59s); 분류 이유 Node 테스트 14 passed (3.06s), git diff --check 통과.

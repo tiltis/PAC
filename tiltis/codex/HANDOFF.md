@@ -296,3 +296,10 @@ API는 `GET /api/pick-path/settings`, `POST /api/pick-path/preview`, `PUT /api/p
 현장 제약: 저장 HOME `wrist_roll` −163.38°가 모델 하한 −157.21° 밖이므로 새 경로는 활성화하지 않았다. 기존 실행 모드는 유지하며 정상 HOME 또는 실제 로봇/모델 보정 일치를 확인해야 한다. 한계를 넓히거나 각도를 임의 감아 통과시키지 않았다. 직전 실제 기록 R221924(22:38:35~22:39:08)는 두 번의 집기 모두 `nothing_held`로 검사/분류 전에 중단됐으며, 이번 새 HOME 경로의 실행 결과가 아니다.
 
 배포 준비만 진행 중이다. Claude가 바꾼 실행본의 글꼴/새 검사 화면, `place_spot`, 색 영역 선택, `mark_processed`를 보존한 staging을 준비한다. 이 기록 시점에는 HOME 기능의 실행본 교체·서버 재시작·새 검사 호출을 하지 않았다. 사용자의 빈 팔 지지·재연결 승인 대기이며 실제 경로/충돌/추종/파지 성공은 미검증이다. 이전 22:36 transfer 배포 완료 기록과 이번 HOME 기능 상태를 구별할 것.
+
+
+## 2026-10-09 Codex — 최신 스테이션 디자인 동기화
+
+사용자가 바뀐 스테이션 디자인으로 전환을 요청했다. 현재 실행본의 Claude 디자인(Pretendard, 네이비 PAC 상단 바, 흰 카드, 1280px 반응형 2열)을 공유 소스의 station/web/index.html로 가져오고, 기존 /pick-path 링크를 새 상단 바에 유지했다. 실행본의 글꼴 제공 경로를 app.py에 통합하고 PretendardVariable.woff2 및 SIL OFL LICENSE.txt를 함께 보존했다. 집기 경로 설정 pick_path.html도 같은 디자인으로 맞췄으며 모든 ID와 JavaScript는 유지했다(스크립트 SHA-256 전후 동일).
+
+실제 8000 탭을 새로고침해 새 상단 바와 검사/진행/분류/카메라 카드 표시를 확인했다. 실행본 디자인은 이미 적용돼 있어 이번 작업은 서버 재시작이나 로봇/설정 변경을 하지 않았다. HOME 경로 설정 기능의 실기 배포 대기는 그대로다. 화면 증거: C:/Users/tilti/PAC2026_data/station_design_20261009/station_updated.png. 기존 집기 UI 테스트 2 passed (7.59s); 분류 이유 Node 테스트 14 passed (3.06s), git diff --check 통과.

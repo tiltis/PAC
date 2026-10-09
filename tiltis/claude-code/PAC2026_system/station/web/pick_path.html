@@ -5,60 +5,88 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>집기 경로 설정 · PAC</title>
 <style>
-  :root{--bg:#f4f6f8;--card:#fff;--ink:#1c2530;--mute:#6a7683;--line:#dde3e9;--blue:#1f5fbf;--warn:#c62f2f;--ok:#1b8a4b}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
-  main{max-width:720px;margin:auto;padding:16px}h1{font-size:22px;margin:12px 0}h2{font-size:17px;margin:0 0 10px}
-  a{color:var(--blue)}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
-  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}label{display:block;margin:14px 0 5px;font-weight:600}
-  select,input,button{font:inherit;border-radius:8px;padding:10px}select,input{border:1px solid var(--line);background:#fff}select{width:100%}input{width:125px}
-  button{border:0;background:var(--blue);color:#fff;cursor:pointer}button.sec{background:#51606f}button:disabled{opacity:.45;cursor:default}
-  .note{font-size:13px;color:var(--mute);margin:8px 0}.status{padding:10px 12px;border-radius:8px;background:#edf1f5;white-space:pre-line;overflow-wrap:anywhere}
-  .status.error{background:#fff0f0;color:var(--warn)}.status.ok{background:#e9f6ee;color:var(--ok)}.kv{display:flex;justify-content:space-between;gap:12px;margin:6px 0}
-  .kv b{text-align:right}svg{width:100%;height:auto;display:block;background:#f8fafc;border:1px solid var(--line);border-radius:8px}
-  pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f4f6f8;padding:10px}summary{cursor:pointer;margin-top:12px}
-  [hidden]{display:none!important}@media(max-width:450px){.row button{flex:1}.kv{display:block}.kv b{display:block;text-align:left}}
+  @font-face{font-family:"Pretendard";font-weight:45 920;font-style:normal;font-display:swap;src:url("/fonts/PretendardVariable.woff2") format("woff2-variations"),url("/fonts/PretendardVariable.woff2") format("woff2")}
+  :root{--navy:#0b1d36;--navy-2:#13294b;--bg:#f2f4f7;--card:#fff;--ink:#0f1b2d;--ink-2:#334155;--mute:#6b7789;--line:#e2e7ee;--line-2:#eef1f5;--accent:#1f4fd8;--accent-soft:#e8eefc;--ok:#127a46;--ok-soft:#e5f4ec;--warn:#c42b2b;--warn-soft:#fcebeb;--radius:12px;--shadow:0 1px 2px rgba(15,27,45,.04),0 4px 16px rgba(15,27,45,.05)}
+  *{box-sizing:border-box}[hidden]{display:none!important}html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Pretendard",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;letter-spacing:-.01em;font-feature-settings:"tnum";-webkit-font-smoothing:antialiased}
+  .topbar{background:linear-gradient(180deg,var(--navy) 0%,var(--navy-2) 100%);color:#fff}
+  .topbar-inner{max-width:1280px;margin:auto;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{width:38px;height:38px;border-radius:9px;background:#fff;color:var(--navy);display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:.02em;flex:none}
+  .brand h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em}.brand p{margin:1px 0 0;font-size:12.5px;color:#a9b8d0;font-weight:500;letter-spacing:.01em}
+  .back-link{margin-left:auto;color:#dfe7f5;text-decoration:none;font-size:13px;font-weight:600;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06)}.back-link:hover{background:rgba(255,255,255,.12)}
+  main{max-width:1280px;margin:auto;padding:20px;display:grid;gap:16px;grid-template-columns:minmax(0,420px) minmax(0,1fr);align-items:start}.col{display:grid;gap:16px;min-width:0}.wide{grid-column:1/-1}
+  .page-note{margin:0;color:var(--mute);font-size:13px}.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
+  .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line-2)}.card-head h2{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}.card-head .sub{font-size:12.5px;color:var(--mute);font-weight:500}.card-body{padding:16px 18px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);margin:16px 0 6px}
+  select,input{width:100%;min-width:0;font:inherit;font-size:15px;padding:10px 12px;color:var(--ink);border:1px solid var(--line);border-radius:9px;background:#fbfcfd;outline:none;transition:border-color .15s,box-shadow .15s}
+  input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:#fff}#height{width:125px}.unit{color:var(--mute);font-weight:600;font-size:13px}
+  button{font:inherit;font-weight:600;font-size:14.5px;padding:11px 16px;border:1px solid transparent;border-radius:9px;cursor:pointer;background:var(--accent);color:#fff;transition:filter .15s,background .15s}
+  button:hover:not(:disabled){filter:brightness(1.06)}button:disabled{opacity:.38;cursor:not-allowed}button.sec{background:#fff;color:var(--ink-2);border-color:var(--line)}button.sec:hover:not(:disabled){background:#f6f8fa;filter:none}button.small{font-size:13px;padding:6px 12px}button.full{width:100%}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+  .note{color:var(--mute);font-size:12.5px;margin:10px 0 0;line-height:1.55}.status{padding:11px 12px;border:1px solid var(--line-2);border-radius:9px;background:#f7f9fb;color:var(--ink-2);font-size:13.5px;white-space:pre-line;overflow-wrap:anywhere;margin:14px 0}
+  .status.error{background:var(--warn-soft);border-color:#f1caca;color:var(--warn)}.status.ok{background:var(--ok-soft);border-color:#cce7d8;color:var(--ok)}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:14px;border-bottom:1px solid var(--line-2)}.kv>span{color:var(--mute);font-weight:500;flex:none}.kv b{font-weight:600;text-align:right;overflow-wrap:anywhere}.home-location{padding:12px 14px;border:1px solid var(--line-2);background:#fafbfc;border-radius:10px}.home-location span{display:block;font-size:12px;color:var(--mute);font-weight:600}.home-location b{display:block;margin-top:4px;font-size:17px;font-weight:700;overflow-wrap:anywhere}
+  .steps{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:16px;font-size:12px;font-weight:600;color:var(--mute)}.steps span{padding:5px 9px;background:#f3f6fb;border:1px solid var(--line-2);border-radius:6px;color:var(--ink-2)}.steps i{font-style:normal}
+  svg{width:100%;height:auto;display:block;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-top:14px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;background:#f7f9fb;border:1px solid var(--line-2);border-radius:8px;padding:12px}summary{cursor:pointer;margin-top:16px;color:var(--ink-2);font-size:13px;font-weight:600}
+  @media(max-width:980px){main{grid-template-columns:minmax(0,1fr);padding:14px}.topbar-inner{padding:12px 14px}}
+  @media(max-width:480px){.brand h1{font-size:17px}.brand p{font-size:11px}.back-link{font-size:12px}.card-head,.card-body{padding-left:14px;padding-right:14px}.kv{display:block}.kv b{display:block;text-align:left;margin-top:4px}.actions{grid-template-columns:1fr}}
 </style>
 </head>
-<body><main>
-<a href="/">← 검사 화면</a>
-<h1>집기 경로 설정</h1>
-<p class="note">설정과 경로 미리보기 화면입니다. 여기서는 로봇이 움직이지 않습니다.</p>
-
-<section class="card">
-  <div class="row" style="justify-content:space-between"><h2>저장된 HOME</h2><button id="refresh" class="sec" type="button">새로 확인</button></div>
-  <div class="kv"><span>위치 X / Y / Z</span><b id="homePosition">확인 중…</b></div>
-  <p id="homeStatus" class="status" aria-live="polite">HOME 상태를 확인하고 있습니다.</p>
-  <button id="saveHome" class="sec" type="button" disabled>현재 자세를 HOME으로 저장</button>
-  <p class="note">멈춰 있는 현재 자세를 읽어 저장합니다. 팔을 이동시키거나 토크를 끄지 않습니다.</p>
-</section>
-
-<section class="card">
-  <h2>접근 방식</h2>
-  <div class="kv"><span>현재 적용</span><b id="activeMode">확인 중…</b></div>
-  <label for="mode">사용할 경로</label>
-  <select id="mode" disabled>
-    <option value="legacy">기존 집기 경로</option>
-    <option value="home_descend_forward">HOME에서 내려온 뒤 앞으로 접근</option>
-  </select>
-  <p class="note">새 경로는 HOME의 X/Y를 유지해 집기 높이까지 내려온 뒤, 같은 높이에서 상자로 접근합니다.</p>
-  <label for="height">집기 높이 보정</label>
-  <div class="row"><input id="height" type="number" min="-10" max="30" step="1" value="0" disabled><span>mm</span></div>
-  <p class="note">카메라로 측정한 집기 높이에 더합니다. +는 위쪽, −는 아래쪽이며 −10~+30 mm 범위입니다.</p>
-  <div class="row" style="margin-top:16px">
-    <button id="preview" type="button" disabled>경로 미리보기</button>
-    <button id="apply" class="sec" type="button" disabled>설정 적용</button>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><div class="logo">PAC</div><div><h1>집기 경로 설정</h1><p>Pick Path Configuration · PAC2026</p></div></div>
+    <a class="back-link" href="/">← 검사 화면</a>
   </div>
-  <p id="message" class="status" role="status" aria-live="polite">설정을 불러오는 중…</p>
+</header>
+<main>
+<p class="page-note wide">설정과 경로 미리보기 화면입니다. 여기서는 로봇이 움직이지 않습니다.</p>
+
+<div class="col">
+<section class="card">
+  <div class="card-head"><h2>저장된 HOME</h2><button id="refresh" class="sec small" type="button">새로 확인</button></div>
+  <div class="card-body">
+    <div class="home-location"><span>위치 X / Y / Z</span><b id="homePosition">확인 중…</b></div>
+    <p id="homeStatus" class="status" aria-live="polite">HOME 상태를 확인하고 있습니다.</p>
+    <button id="saveHome" class="sec full" type="button" disabled>현재 자세를 HOME으로 저장</button>
+    <p class="note">멈춰 있는 현재 자세를 읽어 저장합니다. 팔을 이동시키거나 토크를 끄지 않습니다.</p>
+  </div>
+</section>
+</div>
+
+<div class="col">
+<section class="card">
+  <div class="card-head"><h2>접근 방식</h2><span class="sub">미리보기 후 적용</span></div>
+  <div class="card-body">
+    <div class="kv"><span>현재 적용</span><b id="activeMode">확인 중…</b></div>
+    <label for="mode">사용할 경로</label>
+    <select id="mode" disabled>
+      <option value="legacy">기존 집기 경로</option>
+      <option value="home_descend_forward">HOME에서 내려온 뒤 앞으로 접근</option>
+    </select>
+    <div class="steps" aria-label="새 경로의 접근 순서"><span>HOME</span><i aria-hidden="true">→</i><span>수직 하강</span><i aria-hidden="true">→</i><span>수평 접근</span></div>
+    <p class="note">새 경로는 HOME의 X/Y를 유지해 집기 높이까지 내려온 뒤, 같은 높이에서 상자로 접근합니다.</p>
+    <label for="height">집기 높이 보정</label>
+    <div class="row"><input id="height" type="number" min="-10" max="30" step="1" value="0" disabled><span class="unit">mm</span></div>
+    <p class="note">카메라로 측정한 집기 높이에 더합니다. +는 위쪽, −는 아래쪽이며 −10~+30 mm 범위입니다.</p>
+    <div class="actions">
+      <button id="preview" type="button" disabled>경로 미리보기</button>
+      <button id="apply" class="sec" type="button" disabled>설정 적용</button>
+    </div>
+    <p id="message" class="status" role="status" aria-live="polite">설정을 불러오는 중…</p>
+  </div>
 </section>
 
 <section class="card" id="planCard" hidden>
-  <h2>계산된 접근 경로</h2>
-  <p class="note">옆에서 본 계산 경로입니다. 로봇 실제 이동이나 장애물 없는 공간을 확인한 영상이 아닙니다.</p>
-  <svg id="pathView" viewBox="0 0 640 300" role="img" aria-label="HOME에서 수직 하강 후 상자 쪽으로 접근하는 계산 경로" hidden></svg>
-  <p id="pathFallback" class="note" hidden>표시할 위치 좌표가 없어 아래 계산 결과를 확인해 주세요.</p>
-  <p id="graspPosition" class="note"></p>
-  <details><summary>계산 결과 상세</summary><pre id="planDetails"></pre></details>
+  <div class="card-head"><h2>계산된 접근 경로</h2><span class="sub">측면 보기</span></div>
+  <div class="card-body">
+    <p class="note">옆에서 본 계산 경로입니다. 로봇 실제 이동이나 장애물 없는 공간을 확인한 영상이 아닙니다.</p>
+    <svg id="pathView" viewBox="0 0 640 300" role="img" aria-label="HOME에서 수직 하강 후 상자 쪽으로 접근하는 계산 경로" hidden></svg>
+    <p id="pathFallback" class="note" hidden>표시할 위치 좌표가 없어 아래 계산 결과를 확인해 주세요.</p>
+    <p id="graspPosition" class="note"></p>
+    <details><summary>계산 결과 상세</summary><pre id="planDetails"></pre></details>
+  </div>
 </section>
+</div>
 </main>
 <script>
 // PAC_PICK_PATH_HELPERS_START

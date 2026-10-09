@@ -5,139 +5,247 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>콜드체인 포장 검사 스테이션</title>
 <style>
-  :root { --bg:#f4f6f8; --card:#fff; --ink:#1c2530; --mute:#6a7683; --line:#dde3e9;
-          --ok:#1b8a4b; --warn:#c62f2f; --gray:#8a6d00; --blue:#1f5fbf; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:12px; }
-  h1 { font-size:20px; margin:4px 0 12px; }
-  h2 { font-size:16px; margin:0 0 8px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
-  .row { display:flex; gap:8px; }
-  input { flex:1; min-width:0; font-size:18px; padding:10px; border:1px solid var(--line); border-radius:8px; }
-  button { font-size:16px; padding:10px 14px; border:0; border-radius:8px; background:var(--blue); color:#fff; }
-  button.sec { background:#51606f; }
-  button.danger { background:var(--warn); }
-  button:disabled { opacity:.4; }
-  .ctrl button { flex:1; }
-  .note { color:var(--mute); font-size:12.5px; margin:8px 0 0; }
-  .pill { display:inline-block; padding:2px 10px; border-radius:99px; background:#e8edf2; font-size:14px; }
-  .pill.running { background:#dbe9ff; color:var(--blue); }
-  .pill.done { background:#d9f2e3; color:var(--ok); }
-  .pill.error { background:#fbdcdc; color:var(--warn); }
-  .pill.aborted { background:#eee3b8; color:var(--gray); }
-  .kv { display:flex; justify-content:space-between; gap:8px; padding:3px 0; font-size:15px; }
-  .kv b { font-weight:600; }
-  .faces { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .face { border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
-  .face h3 { margin:0 0 6px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
-  .face img { width:100%; display:block; border-radius:4px; margin-bottom:4px; background:#e8edf2; min-height:40px; }
-  .badge { font-size:13px; padding:2px 8px; border-radius:6px; color:#fff; background:#99a3ad; }
-  .badge.no_anomaly { background:var(--ok); }
-  .badge.suspect { background:var(--warn); }
-  .badge.review { background:var(--gray); }
-  .badge.unmeasurable { background:var(--gray); }
-  .reasons { font-size:14px; color:var(--ink); margin:5px 0 8px; white-space:pre-line; overflow-wrap:anywhere; }
-  .decision-reasons { margin-top:10px; padding:12px; border-radius:8px; background:#fff4e4; border:1px solid #e8ce99; }
-  .decision-reasons.defect { background:#fff0f0; border-color:#edb9b9; }
-  .decision-reasons.ok { background:#eaf2ff; border-color:#bdcfea; }
-  .decision-reasons strong { display:block; font-size:18px; margin-bottom:4px; }
-  .decision-reasons ul { margin:5px 0 0; padding-left:20px; }
-  .history-reason { min-width:210px; white-space:pre-line; }
-  .final { font-size:18px; font-weight:700; padding:8px; border-radius:8px; margin-top:8px; text-align:center; color:#fff; background:#99a3ad; }
+  @font-face {
+    font-family: "Pretendard"; font-weight: 45 920; font-style: normal; font-display: swap;
+    src: url("/fonts/PretendardVariable.woff2") format("woff2-variations"), url("/fonts/PretendardVariable.woff2") format("woff2");
+  }
+  :root {
+    --navy:#0b1d36; --navy-2:#13294b; --bg:#f2f4f7; --card:#ffffff; --ink:#0f1b2d; --ink-2:#334155; --mute:#6b7789;
+    --line:#e2e7ee; --line-2:#eef1f5; --accent:#1f4fd8; --accent-soft:#e8eefc;
+    --ok:#127a46; --ok-soft:#e5f4ec; --warn:#c42b2b; --warn-soft:#fcebeb; --amber:#8a6100; --amber-soft:#fbf2dc;
+    --blue:#1f4fd8; --blue-soft:#e8eefc;
+    --radius:12px; --shadow:0 1px 2px rgba(15,27,45,.04), 0 4px 16px rgba(15,27,45,.05);
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  .face img:not([src]) { display:none; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 "Pretendard", -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+         letter-spacing:-0.01em; font-feature-settings:"tnum"; -webkit-font-smoothing:antialiased; }
+
+  /* 상단 바 */
+  .topbar { background:linear-gradient(180deg, var(--navy) 0%, var(--navy-2) 100%); color:#fff; }
+  .topbar-inner { max-width:1280px; margin:0 auto; padding:14px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:12px; min-width:0; }
+  .logo { width:38px; height:38px; border-radius:9px; background:#fff; color:var(--navy); display:grid; place-items:center;
+          font-weight:800; font-size:13px; letter-spacing:.02em; flex:none; }
+  .brand h1 { margin:0; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
+  .brand p { margin:1px 0 0; font-size:12.5px; color:#a9b8d0; font-weight:500; letter-spacing:.01em; }
+  .top-status { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .chip { display:inline-flex; align-items:center; gap:7px; padding:6px 11px; border-radius:999px; font-size:13px; font-weight:600;
+          background:rgba(255,255,255,.08); color:#dfe7f5; border:1px solid rgba(255,255,255,.12); white-space:nowrap; }
+  .chip i { width:7px; height:7px; border-radius:50%; background:#8ea0bd; display:inline-block; }
+
+  main { max-width:1280px; margin:0 auto; padding:20px; display:grid; gap:16px;
+         grid-template-columns:minmax(0, 420px) minmax(0, 1fr); align-items:start; }
+  .col { display:grid; gap:16px; min-width:0; }
+  .wide { grid-column:1 / -1; }
+  @media (max-width:980px) { main { grid-template-columns:minmax(0,1fr); padding:14px; } .topbar-inner { padding:12px 14px; } }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); min-width:0; }
+  .card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line-2); }
+  .card-head h2 { margin:0; font-size:15px; font-weight:700; letter-spacing:-0.01em; }
+  .card-head .sub { font-size:12.5px; color:var(--mute); font-weight:500; }
+  .card-body { padding:16px 18px; }
+
+  label.field { display:block; font-size:12.5px; font-weight:600; color:var(--ink-2); margin:0 0 6px; }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+  .field-row.single { grid-template-columns:1fr; }
+  input, select { width:100%; min-width:0; font:inherit; font-size:15px; padding:10px 12px; color:var(--ink);
+                  border:1px solid var(--line); border-radius:9px; background:#fbfcfd; outline:none; transition:border-color .15s, box-shadow .15s; }
+  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); background:#fff; }
+  button { font:inherit; font-weight:600; font-size:14.5px; padding:11px 16px; border:1px solid transparent; border-radius:9px; cursor:pointer;
+           background:var(--accent); color:#fff; transition:filter .15s, background .15s; }
+  button:hover:not(:disabled) { filter:brightness(1.06); }
+  button:disabled { opacity:.38; cursor:not-allowed; }
+  button.primary { width:100%; font-size:16px; padding:13px 16px; }
+  button.sec { background:#fff; color:var(--ink-2); border-color:var(--line); }
+  button.sec:hover:not(:disabled) { background:#f6f8fa; filter:none; }
+  button.danger { background:#fff; color:var(--warn); border-color:#efc6c6; }
+  button.danger:hover:not(:disabled) { background:var(--warn-soft); filter:none; }
+  button.small { font-size:13px; padding:6px 12px; }
+  .ctrl { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:10px; }
+  .note { color:var(--mute); font-size:12.5px; margin:10px 0 0; line-height:1.55; }
+
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 11px; border-radius:999px; font-size:13px; font-weight:700;
+          background:#eef1f5; color:var(--ink-2); }
+  .pill::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.75; }
+  .pill.running, .pill.saving { background:var(--accent-soft); color:var(--accent); }
+  .pill.done { background:var(--ok-soft); color:var(--ok); }
+  .pill.error { background:var(--warn-soft); color:var(--warn); }
+  .pill.aborted { background:var(--amber-soft); color:var(--amber); }
+  #paused { font-size:12.5px; color:var(--amber); font-weight:600; }
+
+  .kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .kpi { border:1px solid var(--line-2); background:#fafbfc; border-radius:10px; padding:10px 12px; min-width:0; }
+  .kpi span { display:block; font-size:12px; color:var(--mute); font-weight:600; }
+  .kpi b { display:block; font-size:16px; font-weight:700; margin-top:2px; overflow-wrap:anywhere; }
+  .kv { display:flex; justify-content:space-between; gap:12px; padding:9px 0; font-size:14px; border-bottom:1px solid var(--line-2); }
+  .kv:last-child { border-bottom:0; }
+  .kv > span { color:var(--mute); font-weight:500; flex:none; }
+  .kv b { font-weight:600; text-align:right; overflow-wrap:anywhere; }
+  .kvs { margin-top:12px; }
+
+  .err { color:var(--warn); background:var(--warn-soft); border:1px solid #f1caca; border-radius:9px; padding:10px 12px;
+         font-weight:600; font-size:13.5px; margin-top:12px; word-break:break-all; }
+  .final { font-size:15.5px; font-weight:700; padding:12px 14px; border-radius:10px; margin-top:12px; color:#fff; background:#7b8696; line-height:1.45; }
   .final.blue { background:var(--blue); } .final.red { background:var(--warn); }
-  .zones { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .zone { padding:10px; border-radius:8px; border:2px solid; font-size:13px; }
-  .zone strong { display:block; font-size:17px; margin-bottom:4px; }
-  .zone.blue { border-color:var(--blue); background:#eaf2ff; color:var(--blue); }
-  .zone.red { border-color:var(--warn); background:#fff0f0; color:var(--warn); }
-  .err { color:var(--warn); font-weight:600; margin-top:6px; word-break:break-all; }
-  table { width:100%; border-collapse:collapse; font-size:13.5px; }
-  th, td { text-align:left; padding:5px 4px; border-bottom:1px solid var(--line); }
+  .decision-reasons { margin-top:12px; padding:12px 14px; border-radius:10px; background:var(--amber-soft); border:1px solid #ecd9a8; }
+  .decision-reasons.defect, .decision-reasons.error { background:var(--warn-soft); border-color:#f0c9c9; }
+  .decision-reasons.ok { background:var(--blue-soft); border-color:#c9d7f5; }
+  .decision-reasons strong { display:block; font-size:15px; margin-bottom:4px; }
+  .decision-reasons ul { margin:4px 0 0; padding-left:18px; font-size:13.5px; color:var(--ink-2); }
+
+  .zones { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .zone { padding:12px 14px; border-radius:10px; border:1px solid; font-size:13px; line-height:1.5; }
+  .zone strong { display:flex; align-items:center; gap:8px; font-size:15px; margin-bottom:4px; }
+  .zone strong::before { content:""; width:10px; height:10px; border-radius:3px; background:currentColor; }
+  .zone.blue { border-color:#c9d7f5; background:var(--blue-soft); color:var(--blue); }
+  .zone.red { border-color:#f0c9c9; background:var(--warn-soft); color:var(--warn); }
+  .zone span { color:var(--ink-2); }
+
+  .camera { background:#0c1524; border-radius:10px; overflow:hidden; aspect-ratio:3 / 1; display:grid; place-items:center; color:#7f8ea6; font-size:13.5px; }
+  .camera img { width:100%; height:100%; object-fit:contain; display:block; }
+  #outlineStatus { margin:10px 0 0; }
+
+  .faces { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
+  .face { border:1px solid var(--line); border-radius:10px; padding:12px; min-width:0; background:#fff; }
+  .face h3 { margin:0 0 8px; font-size:14.5px; font-weight:700; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .face img { width:100%; display:block; border-radius:7px; margin-bottom:6px; background:#eef1f5; min-height:44px; }
+  .badge { font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; color:var(--ink-2); background:#eef1f5; white-space:nowrap; }
+  .badge.no_anomaly { background:var(--ok-soft); color:var(--ok); }
+  .badge.suspect { background:var(--warn-soft); color:var(--warn); }
+  .badge.review, .badge.unmeasurable { background:var(--amber-soft); color:var(--amber); }
+  .reasons { font-size:13.5px; color:var(--ink-2); margin:0 0 8px; white-space:pre-line; overflow-wrap:anywhere; }
+  .measurements { font-size:12px; }
+
   .scroll { overflow-x:auto; }
-  a { color:var(--blue); }
-  @media (max-width:420px) { .face img { min-height:30px; } }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  thead th { text-align:left; font-size:12px; font-weight:700; color:var(--mute); background:#f8f9fb; padding:10px 12px;
+             border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line-2); vertical-align:top; white-space:nowrap; }
+  tbody tr:hover td { background:#fafbfd; }
+  .history-reason { min-width:240px; white-space:pre-line; color:var(--ink-2); }
+  a.link { color:var(--accent); font-weight:600; font-size:13px; text-decoration:none; padding:6px 10px; border:1px solid var(--line); border-radius:8px; }
+  a.link:hover { background:var(--accent-soft); }
+  @media (max-width:480px) { .field-row { grid-template-columns:1fr; } .kpis { grid-template-columns:1fr 1fr; } .camera { aspect-ratio:auto; min-height:120px; } }
 </style>
 </head>
 <body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="logo">PAC</div>
+      <div>
+        <h1>콜드체인 포장 검사 스테이션</h1>
+        <p>Automated Packaging Inspection · PAC2026</p>
+      </div>
+    </div>
+    <div class="top-status">
+      <a href="/pick-path" class="chip" style="text-decoration:none">집기 경로 설정</a>
+      <span id="state" class="pill">대기</span>
+      <span class="chip"><i></i><span id="robotMode">확인 중</span></span>
+    </div>
+  </div>
+</header>
+
 <main>
-  <h1>콜드체인 포장 검사 스테이션</h1>
-  <p><a href="/pick-path">집기 경로 설정 — home에서 수직 하강 후 전진</a></p>
+  <div class="col">
+    <section class="card">
+      <div class="card-head"><h2>검사 실행</h2><span class="sub">시료 1개 단위</span></div>
+      <div class="card-body">
+        <div class="field-row">
+          <div><label class="field" for="specimen">시료 ID</label><input id="specimen" placeholder="비우면 자동 번호" autocomplete="off"></div>
+          <div><label class="field" for="boxType">상자 종류</label>
+            <select id="boxType" title="상자 종류(가르친 자세 세트)">
+              <option value="white">흰 상자 70×70×90</option>
+              <option value="brown">갈색 상자 80×80×45</option>
+              <option value="">공통 자세</option>
+            </select></div>
+        </div>
+        <div class="field-row single">
+          <div><label class="field" for="session">세션</label><input id="session" placeholder="세션 이름" value="demo"></div>
+        </div>
+        <button id="start" class="primary">검사 시작</button>
+        <div class="ctrl">
+          <button id="pause" class="sec">일시정지</button>
+          <button id="resume" class="sec">재개</button>
+          <button id="abort" class="danger">중단</button>
+        </div>
+        <p class="note">일시정지와 중단은 소프트웨어 요청이며 비상정지가 아닙니다. 즉시 멈춰야 하면 로봇 전원을 끄십시오.</p>
+      </div>
+    </section>
 
-  <div class="card">
-    <h2>로봇팔 분류 목적지</h2>
-    <div class="zones">
-      <div class="zone blue"><strong>파랑 영역</strong>정상 판정<br>모든 검사면 이상 미검출</div>
-      <div class="zone red"><strong>빨강 영역</strong>불량·확인 필요<br>이상 의심 · 미판정 · 측정 불가</div>
-    </div>
-    <p class="note">검사 결과에 따라 분류합니다. 이상 발견 시 남은 면 검사를 생략할 수 있으며, 센서 오류·연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
+    <section class="card">
+      <div class="card-head"><h2>진행 현황</h2><span id="paused"></span></div>
+      <div class="card-body">
+        <div class="kpis">
+          <div class="kpi"><span>현재 단계</span><b id="step">대기</b></div>
+          <div class="kpi"><span>시료</span><b id="spec">없음</b></div>
+          <div class="kpi"><span>총 소요 시간</span><b id="elapsed">없음</b></div>
+          <div class="kpi"><span>재촬영</span><b id="retakes">0 / 1</b></div>
+        </div>
+        <div class="kvs">
+          <div class="kv"><span>상자 회전</span><b id="boxRot">없음</b></div>
+          <div class="kv"><span>센서</span><b id="sensor">확인 중</b></div>
+        </div>
+        <div id="error" class="err" hidden></div>
+        <div id="final" class="final" hidden></div>
+        <div id="decisionReasons" class="decision-reasons" hidden aria-live="polite">
+          <strong id="decisionTitle"></strong><ul id="decisionList"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>분류 목적지</h2><span class="sub">종이 위치는 카메라로 자동 확인</span></div>
+      <div class="card-body">
+        <div class="zones">
+          <div class="zone blue"><strong>파랑 영역</strong><span>정상 판정<br>모든 검사면 이상 미검출</span></div>
+          <div class="zone red"><strong>빨강 영역</strong><span>불량 및 확인 필요<br>이상 의심 · 미판정 · 측정 불가</span></div>
+        </div>
+        <p class="note">이상이 발견되면 남은 면 검사를 생략할 수 있습니다. 센서 오류나 연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
+      </div>
+    </section>
   </div>
 
-  <div class="card">
-    <div class="row">
-      <input id="specimen" placeholder="시료 ID (예: S01)" autocomplete="off">
-      <select id="boxType" title="상자 종류(가르친 자세 세트)" style="font-size:15px">
-        <option value="white">흰 상자 70×70×90</option>
-        <option value="brown">갈색 상자 80×80×45</option>
-        <option value="">공통 자세</option>
-      </select>
-      <button id="start">검사 시작</button>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input id="session" placeholder="세션 이름" value="demo" style="font-size:15px">
-    </div>
-    <div class="row ctrl" style="margin-top:8px">
-      <button id="pause" class="sec">일시정지 요청</button>
-      <button id="resume" class="sec">재개</button>
-      <button id="abort" class="danger">중단</button>
-    </div>
-    <p class="note">일시정지·중단은 소프트웨어 요청이며 비상정지가 아니다. 즉시 멈춰야 하면 로봇 전원 스위치를 끈다.</p>
+  <div class="col">
+    <section class="card">
+      <div class="card-head"><h2>실시간 카메라</h2><button id="liveBtn" type="button" class="small">켜기</button></div>
+      <div class="card-body">
+        <div class="camera"><span id="liveHint">RGB · 열화상 · 깊이 화면을 보려면 켜기를 누르십시오</span><img id="live" alt="실시간 카메라" hidden></div>
+        <p id="outlineStatus" class="note"></p>
+        <p class="note">빨간 테두리는 상자 위치 표시이며 불합격 표시와 별개입니다.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>면별 검사 결과</h2><span class="sub">면마다 가장 최근 촬영</span></div>
+      <div class="card-body">
+        <div class="faces">
+          <div class="face" id="faceA"></div>
+          <div class="face" id="faceB"></div>
+          <div class="face" id="faceC" hidden></div>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <div class="card">
-    <div class="kv"><span>상태</span><span><span id="state" class="pill">대기</span> <span id="paused"></span></span></div>
-    <div class="kv"><span>현재 단계</span><b id="step">-</b></div>
-    <div class="kv"><span>시료</span><b id="spec">-</b></div>
-    <div class="kv"><span>재촬영</span><b id="retakes">0 / 1</b></div>
-    <div class="kv"><span>총 소요 시간</span><b id="elapsed">-</b></div>
-    <div class="kv"><span>센서</span><b id="sensor">-</b></div>
-    <div class="kv"><span>로봇</span><b id="robotMode">-</b></div>
-    <div id="error" class="err" hidden></div>
-    <div id="final" class="final" hidden></div>
-    <div id="decisionReasons" class="decision-reasons" hidden aria-live="polite">
-      <strong id="decisionTitle"></strong><ul id="decisionList"></ul>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>실시간 카메라 <button id="liveBtn" type="button" style="font-size:13px;padding:4px 10px;margin-left:8px">켜기</button></h2>
-    <div style="font-size:13px;color:#666">RGB · 열화상 · 깊이(센서에서 켠 경우). 빨간 테두리는 갈색 상자 위치 표시이며 불합격 표시와 별개입니다.</div>
-    <p id="outlineStatus" class="note"></p>
-    <img id="live" alt="실시간 카메라" hidden style="width:100%;margin-top:8px;border-radius:8px;background:#222">
-  </div>
-
-  <div class="card">
-    <h2>면별 검사 결과</h2>
-    <div class="faces">
-      <div class="face" id="faceA"></div>
-      <div class="face" id="faceB"></div>
-      <div class="face" id="faceC" hidden></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>기록 <a href="/api/runs.csv" style="font-size:13px;font-weight:400">CSV</a></h2>
+  <section class="card wide">
+    <div class="card-head"><h2>검사 기록</h2><a class="link" href="/api/runs.csv">CSV 내려받기</a></div>
     <div class="scroll">
       <table>
-        <thead><tr><th>#</th><th>시료</th><th>판정</th><th>분류 이유</th><th>구역</th><th>재촬영</th><th>시간</th><th>상태</th></tr></thead>
+        <thead><tr><th>번호</th><th>시료</th><th>판정</th><th>분류 이유</th><th>구역</th><th>재촬영</th><th>시간</th><th>상태</th></tr></thead>
         <tbody id="hist"></tbody>
       </table>
     </div>
-  </div>
+  </section>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
+const NA = '없음';
 const STEP = { home:'홈 위치', pick_approach:'집기 접근', pick:'집기 위치', lift:'들어올리기',
   face_A:'A면 제시', face_B:'B면 제시', face_C:'C면 제시', bin_ok:'파랑 영역으로 이동', bin_human:'빨강 영역으로 이동' };
 const VERDICT = { review:'미판정·검토', no_anomaly:'이상 미검출', suspect:'이상 의심', unmeasurable:'측정 불가' };
@@ -230,7 +338,7 @@ globalThis.PacReasons = (() => {
       else if (run.bin === 'human') title = kind === 'defect' ? '빨강 분류 이유' : '빨강 분류: 확인 필요';
       else title = '검사 결과';
     } else if (run.error) { kind = 'error'; title = '검사 중단·분류 미완료'; }
-    const lines = problems.map(f => f.face + '면: ' + f.title + (f.details.length ? ' — ' + f.details.join(' · ') : ''));
+    const lines = problems.map(f => f.face + '면: ' + f.title + (f.details.length ? ' (' + f.details.join(' · ') + ')' : ''));
     if (!lines.length && run.final_verdict && run.bin === 'ok') lines.push('검사한 항목에서 이상을 찾지 못했습니다.');
     if (!lines.length && run.final_verdict && run.bin !== 'ok') lines.push('상세 검사 근거가 없어 확인이 필요합니다.');
     if (run.error) lines.push('실행 오류: ' + run.error);
@@ -244,7 +352,7 @@ globalThis.PacReasons = (() => {
 // PAC_REASON_PRESENTATION_END
 
 function stepLabel(s) {
-  if (!s) return '-';
+  if (!s) return '대기';
   let m;
   if ((m = s.match(/^move:(.+)$/))) return '이동: ' + (STEP[m[1]] || m[1]);
   if ((m = s.match(/^grip:(.+)$/))) return m[1] === 'open' ? '그리퍼 열기' : '그리퍼 닫기';
@@ -252,7 +360,7 @@ function stepLabel(s) {
   if ((m = s.match(/^inspect:(.)#(\d)$/))) return m[1] + '면 검사' + (m[2] === '1' ? ' (재촬영)' : '');
   return s;
 }
-const fmtMs = ms => (ms == null ? '-' : (ms / 1000).toFixed(1) + ' 초');
+const fmtMs = ms => (ms == null ? NA : (ms / 1000).toFixed(1) + ' 초');
 
 async function api(path, method) {
   const r = await fetch(path, method ? { method, headers: {'Content-Type':'application/json'} } : undefined);
@@ -296,6 +404,7 @@ $('liveBtn').onclick = () => {
   if (liveOn) outlinedPreview = localPreview;
   $('liveBtn').textContent = liveOn ? '끄기' : '켜기';
   $('live').hidden = !liveOn;
+  $('liveHint').hidden = liveOn;
   liveNext();
 };
 $('resume').onclick = () => post('/api/resume');
@@ -309,7 +418,7 @@ function setImg(img, path) {
 function renderFace(el, face, inspections) {
   const list = inspections.filter(i => i.face === face);
   if (!el.dataset.built) {
-    el.innerHTML = '<h3><span></span><span class="badge">-</span></h3><div class="reasons"></div>' +
+    el.innerHTML = '<h3><span></span><span class="badge">대기</span></h3><div class="reasons"></div>' +
       '<img alt="RGB"><img alt="열화상"><div class="measurements note"></div>';
     el.dataset.built = '1';
   }
@@ -357,11 +466,21 @@ async function poll() {
     const st = s.state;
     $('state').textContent = STATE[st] || st;
     $('state').className = 'pill ' + st;
-    $('paused').textContent = s.paused ? '(일시정지 요청됨)' : '';
-    $('step').textContent = run ? (st === 'running' ? stepLabel(run.step) : (st === 'idle' ? '-' : '종료')) : '-';
-    $('spec').textContent = run ? run.specimen_id : '-';
+    $('paused').textContent = s.paused ? '일시정지 요청됨' : '';
+    $('step').textContent = run ? (st === 'running' ? stepLabel(run.step) : (st === 'idle' ? '대기' : '종료')) : '대기';
+    $('spec').textContent = run ? run.specimen_id : NA;
+    {  // 깊이로 잰 상자 회전(집기 접근 방향 기준)과 집게 방향 폭. 폭 초과면 빨간 글씨
+      const o = run && run.pick && run.pick.plan && run.pick.plan.box_orientation;
+      const el = $('boxRot');
+      if (!o) { el.textContent = NA; el.style.color = ''; el.title = ''; }
+      else {
+        el.textContent = (o.rotation_deg > 0 ? '+' : '') + o.rotation_deg + '° · 폭 ' + (o.jaw_span_mm ?? NA) + 'mm' + (o.warning ? ' ⚠' : '');
+        el.style.color = o.warning ? 'var(--warn)' : '';
+        el.title = o.warning || '집게 닫힘 방향으로 본 상자 폭';
+      }
+    }
     $('retakes').textContent = (run ? run.retakes_used : 0) + ' / 1';
-    $('elapsed').textContent = run ? fmtMs(run.elapsed_ms) : '-';
+    $('elapsed').textContent = run ? fmtMs(run.elapsed_ms) : NA;
     const busy = s.busy ?? (st === 'running' || st === 'saving');
     $('start').disabled = busy;
     $('pause').disabled = st !== 'running' || s.paused;
@@ -403,7 +522,7 @@ async function loadHistory() {
     const pending = [];
     for (const r of runs) {
       const tr = document.createElement('tr');
-      const cells = [r.id, r.specimen_id, VERDICT[r.final_verdict] || '-', '', (BIN[r.bin] || '-') + ' / 배치 ' + (BIN[r.placed_bin] || '미확인'),
+      const cells = [r.id, r.specimen_id, VERDICT[r.final_verdict] || NA, '', (BIN[r.bin] || NA) + ' / 배치 ' + (BIN[r.placed_bin] || '미확인'),
         r.retakes_used, fmtMs(r.elapsed_ms), STATE[r.state] || r.state];
       for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
       const reasonCell = tr.children[3]; reasonCell.className = 'history-reason';
@@ -444,4 +563,3 @@ setInterval(pollSensor, 5000);
 poll(); pollSensor(); loadHistory();
 </script>
 </body>
-</html>
