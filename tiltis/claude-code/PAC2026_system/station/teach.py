@@ -16,6 +16,9 @@ import numpy as np
 
 from robot import (DEFAULT_POSES, POSE_NAMES, RobotError, So101Robot, empty_poses,
                    load_poses, save_poses)
+from sequencer import SORTING_ZONES
+
+ZONE_LABELS = {zone["pose"]: zone["label"] for zone in SORTING_ZONES.values()}
 
 REPLAY_ORDER = ["home", "pick_approach", "pick", "lift", "face_A", "face_B", "bin_ok", "home"]
 # gripper_closed: 빈손으로 끝까지 닫은 값(집을 때 이 값으로 조여 쥔다). gripper_held: 손잡이를 물린 채 닫은 값(선택,
@@ -28,6 +31,8 @@ def teach(robot: So101Robot, poses_path: Path) -> None:
     robot.disable_torque()
     print("토크 OFF. 팔을 손으로 움직일 수 있다.")
     print("자세 이름:", ", ".join(POSE_NAMES + list(GRIPPER_CMDS)))
+    print("분류 위치: bin_ok = 파랑 영역(정상), bin_human = 빨강 영역(불량·확인 필요).")
+    print("각 영역에서 상자를 안전하게 내려놓을 자세를 저장한다. 색만으로 좌표를 추정하지 않는다.")
     print("빈 줄 또는 q 입력 시 종료.")
     while True:
         name = input("저장할 이름> ").strip()
@@ -42,7 +47,7 @@ def teach(robot: So101Robot, poses_path: Path) -> None:
             print(f"  gripper.{GRIPPER_CMDS[name]} = {joints['gripper.pos']:.1f}")
         else:
             poses.setdefault("joints", {})[name] = joints
-            print("  저장:", {k: round(v, 1) for k, v in joints.items()})
+            print(f"  저장: {name} ({ZONE_LABELS.get(name, name)})", {k: round(v, 1) for k, v in joints.items()})
         save_poses(poses, poses_path)  # 매번 저장해 중간에 끊겨도 남게 한다
 
 
@@ -53,7 +58,7 @@ def replay(robot: So101Robot, poses_path: Path, duration_s: float = 4.0) -> None
     if input("그리퍼를 열까요? (Enter=예, n=건너뜀) ").strip() != "n":
         robot.set_gripper("open")
     for name in REPLAY_ORDER:
-        if input(f"-> {name} 로 이동 (Enter, q=중단) ").strip() == "q":
+        if input(f"-> {name} ({ZONE_LABELS.get(name, name)}) 로 이동 (Enter, q=중단) ").strip() == "q":
             break
         robot.move_to(name, duration_s)
         print(f"   도착 안정화: {robot.wait_settled(5.0)}")

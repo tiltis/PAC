@@ -53,6 +53,33 @@ def test_all_ok():
     assert r["elapsed_ms"] >= 0 and r["steps"]
 
 
+@pytest.mark.parametrize("verdict, bin_name, color, pose, label", [
+    ("no_anomaly", "ok", "blue", "bin_ok", "파랑 영역"),
+    ("suspect", "human", "red", "bin_human", "빨강 영역"),
+    ("review", "human", "red", "bin_human", "빨강 영역"),
+    ("unmeasurable", "human", "red", "bin_human", "빨강 영역"),
+])
+def test_three_face_sorting_to_color_zone_and_release(verdict, bin_name, color, pose, label):
+    robot = MockRobot(speed=0)
+    sensor = FakeSensor({("C", 0): verdict, ("C", 1): verdict})
+    seq = Sequencer(robot, sensor, settle_timeout_s=0.1, faces="A,B,C")
+    result = seq.run("COLOR", "mock")
+    expected = {"bin": bin_name, "color": color, "pose": pose, "label": label}
+    assert result["state"] == "done" and result["destination"] == expected
+    assert result["bin"] == result["placed_bin"] == bin_name
+    assert result["routing_status"] == "complete"
+    assert {face for face, _ in sensor.calls} == {"A", "B", "C"}
+    calls = robot.calls
+    drop_index = next(i for i, call in enumerate(calls) if call[:2] == ("move_to", pose))
+    assert calls[drop_index + 1] == ("gripper", "open")
+    assert calls[drop_index + 2][:2] == ("move_to", "home")
+    assert [move for move in robot.moves() if move.startswith("bin_")] == [pose]
+    snapshot = seq.snapshot()
+    assert snapshot["robot_mode"] == "mock"
+    assert snapshot["last_result"]["destination"] == expected
+    assert snapshot["zones"][bin_name] == {k: v for k, v in expected.items() if k != "bin"}
+
+
 def test_suspect_on_b_still_inspects_both():
     robot, sensor, seq = make({("B", 0): "suspect"})
     r = seq.run("S02", "t")
@@ -185,6 +212,10 @@ def test_app_end_to_end(mock_sensor_url, tmp_path):
     app = create_app(robot=MockRobot(speed=0), sensor_url=mock_sensor_url, db_path=tmp_path / "t.db")
     with TestClient(app) as client:
         st = run_via_api(client, "S01")
+        assert st["robot_mode"] == "mock"
+        assert st["zones"]["ok"]["color"] == "blue"
+        assert st["zones"]["human"]["pose"] == "bin_human"
+        assert st["last_result"]["destination"]["color"] == "red"
         assert st["last_result"]["final_verdict"] == "suspect"
         runs = client.get("/api/runs").json()
         assert len(runs) == 1 and runs[0]["specimen_id"] == "S01"

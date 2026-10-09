@@ -13,6 +13,12 @@ DEFAULT_DURATIONS = {  # 이동별 기본 소요 시간(초). 현장에서 조�
     "vision_approach": 2.5, "vision_grasp": 1.5, "vision_lift": 1.5,
 }
 
+# 기존 자세/DB 키를 유지한다. 실제 위치는 현장에서 poses.json에 가르친다.
+SORTING_ZONES = {
+    "ok": {"label": "파랑 영역", "color": "blue", "pose": "bin_ok"},
+    "human": {"label": "빨강 영역", "color": "red", "pose": "bin_human"},
+}
+
 
 class BusyError(Exception):
     pass
@@ -137,6 +143,8 @@ class Sequencer:
             busy, paused = self._busy, self._paused
         state = cur["state"] if cur else (last["state"] if last else "idle")
         return {"state": state, "busy": busy, "paused": paused, "faces": list(self.faces),
+                "zones": copy.deepcopy(SORTING_ZONES),
+                "robot_mode": "mock" if getattr(self.robot, "is_mock", False) else "hardware",
                 "current": cur, "last_result": last}
 
     def start(self, specimen_id: str, session: str) -> None:
@@ -164,7 +172,7 @@ class Sequencer:
             self._cur = {
                 "specimen_id": specimen_id, "session": session, "state": "running",
                 "step": None, "started_at": _now_iso(), "finished_at": None,
-                "final_verdict": None, "bin": None, "decision_status": "pending",
+                "final_verdict": None, "bin": None, "destination": None, "decision_status": "pending",
                 "routing_status": "not_started", "placed_bin": None, "retakes_used": 0,
                 "inspections": [], "events": [], "steps": [], "grasp_checks": [], "elapsed_ms": 0, "error": None,
             }
@@ -359,10 +367,12 @@ class Sequencer:
         verdict, bin_name = decide(finals, self.faces)
         self._cur["final_verdict"] = verdict
         self._cur["bin"] = bin_name
+        self._cur["destination"] = {"bin": bin_name, **SORTING_ZONES[bin_name]}
         self._cur["decision_status"] = "decided"
-        self._emit("decide", "end", verdict=verdict, bin=bin_name)
+        self._emit("decide", "end", verdict=verdict, bin=bin_name,
+                   destination=copy.deepcopy(self._cur["destination"]))
         self._cur["routing_status"] = "in_progress"
-        self._move(f"bin_{bin_name}")
+        self._move(SORTING_ZONES[bin_name]["pose"])
         self._grip("open")
         self._cur["placed_bin"] = bin_name
         self._cur["routing_status"] = "placed"

@@ -1,6 +1,18 @@
 # 스테이션 (로봇 + 작업 순서 + 모바일 웹 + 기록)
 
-SO-101 로봇 팔이 지그에서 포장을 집어 A면, B면을 고정 카메라에 보여 주고, 센서 서버의 판정에 따라 "정상" 또는 "사람 확인" 구역에 놓는다. 이 폴더는 로봇 제어, 작업 순서, 휴대폰용 웹 화면, 기록(SQLite/CSV)을 담당한다. 센서 서버와의 통신 약속은 [../CONTRACT.md](../CONTRACT.md)를 따른다.
+SO-101 로봇 팔이 지그에서 포장을 집어 설정된 검사면(A·B 또는 A·B·C)을 고정 카메라에 보여 주고, 센서 서버의 판정에 따라 파랑 또는 빨강 영역에 놓는다. 이 폴더는 로봇 제어, 작업 순서, 휴대폰용 웹 화면, 기록(SQLite/CSV)을 담당한다. 센서 서버와의 통신 약속은 [../CONTRACT.md](../CONTRACT.md)를 따른다.
+
+## 파랑·빨강 영역 연결
+
+| 최종 판정 | 영역 | 기존 API/DB 키 | 현장에 가르칠 자세 |
+|---|---|---|---|
+| 모든 검사면 `no_anomaly` | 파랑(정상) | `ok` | `bin_ok` |
+| `suspect` | 빨강(불량 의심) | `human` | `bin_human` |
+| `review` 또는 재촬영 후 `unmeasurable` | 빨강(확인 필요) | `human` | `bin_human` |
+
+센서 오류·수신 단절·면 누락·알 수 없는 판정은 분류를 중단한다. 영역의 실제 좌표를 색만으로 추정하지 않는다. 두 영역에서 **상자를 내려놓을 자세**를 `teach.py`로 기록하며, 배치가 바뀌면 다시 가르친다. 기존 자세 파일과 키는 그대로 유지한다.
+
+`GET /api/status`는 `zones`, 결정된 `destination`, `robot_mode`를 표시한다. `destination`은 목표이며 `placed_bin`·`routing_status`가 배치 진행 상태다. `mock`의 완료는 실제 로봇 이동이 아니다. 새 목적지 메타데이터는 상태 응답용이며 DB/CSV는 기존 분류 키를 사용한다. 실기 연결·경로·관절 한계·충돌·실제 속도 및 정지 검증과 사용자 승인 후에 실제로 움직인다.
 
 | 파일 | 역할 |
 |---|---|
@@ -47,7 +59,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 2. 포트 찾기: `lerobot-find-port` (팔 USB를 뺐다 꽂으며 확인). 예: `/dev/tty.usbmodem5A460812341`
 3. 보정: `lerobot-calibrate --robot.type=so101_follower --robot.port=<포트> --robot.id=<id>` (명령 옵션은 설치된 버전의 공식 문서로 확인)
 4. 자세 티칭: `python teach.py --port <포트> --id <id>`
-   토크가 꺼지므로 팔을 손으로 옮긴 뒤, `home`, `pick_approach`, `pick`, `lift`, `face_A`, `face_B`, `bin_ok`, `bin_human`, `gripper_open`, `gripper_closed`를 차례로 입력하고 Enter. 결과는 `poses.json`에 저장된다(`poses.example.json` 참고).
+   토크가 꺼지므로 팔을 손으로 옮긴 뒤, `home`, `pick_approach`, `pick`, `lift`, `face_A`, `face_B`, `bin_ok`(파랑 영역), `bin_human`(빨강 영역), `gripper_open`, `gripper_closed`를 차례로 입력하고 Enter. 3면 검사에는 `face_C`도 가르친다. 결과는 `poses.json`에 저장된다(`poses.example.json` 참고).
    - `gripper_closed`는 **빈손으로 끝까지 닫은** 상태에서 저장한다(집을 때 이 값으로 조여 쥔다).
    - 선택: 손잡이를 물린 채 손으로 닫고 `gripper_held` 저장 → 집기 확인 기준이 정확해진다.
    - **집기 확인**: 닫은 직후, 들어 올린 뒤, 각 면 촬영 직전에 그리퍼 위치를 읽는다. 끝까지 닫혔으면(빈손) 또는 떨어뜨렸으면

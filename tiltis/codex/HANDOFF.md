@@ -65,3 +65,20 @@ Codex 수정: `claude-code/PAC2026_system/sensor/server.py`의 깊이 과반 집
 추가 C면 연결 수정: `b6ec1a9`의 3면 검사에서 FakeRig와 `rules_calib.py`/`calib.py` CLI가 C를 거부하는 실패 3개를 재현했다. `fake_rig.py`, 두 보정 CLI와 수동 촬영 도구 `capture_app.py`에 C면을 연결했다. C면 촬영 ID, 규칙 ROI→fit→누락 판정, 정합 CLI 저장/재검증 회귀 3개를 추가했다. 최종 센서 **106 pass(43.58s)**, 스테이션 **106 pass(54.26s)**. 실제 카메라 GUI·로봇 C면 자세는 이 검토에서 실행하지 않았다.
 
 실기 전 남은 문제: 현재 흰 상자 접근점 집게 끝이 윗면보다 15mm 아래, 갈색 상자는 여유 0mm로 계획된다. IK만 통과한 상태이며 접근 경로·개구 폭·충돌 검증과 문서의 접근 높이 정합이 필요하다. 웹 abort는 단계 경계 중단이고 station stop의 hold 예외 무시가 남아 있다. 손목 bridge 연결과 실기 준비 완료로 보고하지 않는다. 상세 계산·근거·테스트 명령은 교차 검토 기록에 있다.
+
+## 2026-10-09 후속: 파랑·빨강 영역 분류
+
+사용자가 정상 포장은 파랑, 불량 포장은 빨강 영역으로 로봇팔이 옮기도록 요청했다. Claude의 기존 `sequencer.decide`와 `bin_ok`/`bin_human` 이동·그리퍼 해제 순서를 재사용했다. 새로운 로봇 제어기를 만들거나 기존 자세/DB 키를 바꾸지 않았다. 모든 설정 검사면이 정상이어야 파랑이며, 이상 의심·미판정·재촬영 후 측정 불가는 빨강(확인 필요 포함), 센서 오류·불완전 응답은 기존대로 중단한다.
+
+변경: 상대 `station/sequencer.py`에 영역→기존 자세 매핑과 `/api/status`용 `zones`, `destination`, `robot_mode`를 추가했다. `web/index.html`은 파랑·빨강 안내, 목적지 색, 모의/실기 모드 표시를 제공한다. `teach.py`에 두 영역 티칭 설명을 추가하고 CONTRACT·station README·현장 순서·예시 자세 단위를 실제 `use_degrees=True` 코드와 맞췄다. `destination`은 런타임 상태이며 DB/CSV의 분류 키나 실측 위치를 대체하지 않는다.
+
+검증: 기존 `station/tests/test_sequencer.py`에 3면 검사 후 정상·이상 의심·미판정·지속 측정 불가 각각의 목적지/그리퍼 해제/홈 복귀 확인 4개를 추가했고 모의 HTTP 통합 시험에서 새 메타데이터도 확인했다.
+
+```powershell
+# claude-code/PAC2026_system 에서
+& 'C:/PAC2026_system/.venv-station/Scripts/python.exe' -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o 'addopts='
+```
+
+**110 passed, 4 warnings, 54.61s**. Node `vm.Script`로 브라우저 JS 구문, `JSON.parse`로 예시 자세 JSON 형식도 확인했다. 모두 모의 로봇 검증이며 센서 코드는 이번 분류 변경에서 수정하지 않았다. 실행 중 `C:/PAC2026_system` 카메라/스테이션 배포본 및 실제 `poses.json`은 교체하지 않았다. 별도 미리보기 서버 준비/실행 요청은 자동 도구 정책으로 차단되어 실행되지 않았으며 8002 화면을 열었다고 보고하지 않는다. 변경 UI는 소스로 제공하며 브라우저 렌더링은 미검증이다.
+
+다음 작업: 현장 두 영역을 고정하고 `bin_ok`=파랑에서 내려놓는 자세, `bin_human`=빨강에서 내려놓는 자세로 티칭한다. 색으로 영역 좌표를 자동 검출하는 기능은 구현하지 않았다. 로봇 모델·연결·보정·현재 상태 확인, 기존 접근/중단 문제 해결, 두 경로의 도달성·충돌·실제 속도 검증과 사용자 실기 승인 후 저속 구동한다. 실제 분류 완료로 주장하지 않는다.

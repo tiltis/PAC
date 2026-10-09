@@ -64,11 +64,14 @@
 
 ## 최종 판정 규칙 (스테이션)
 
-- 두 면 중 하나라도 `suspect` → 최종 `suspect`, 사람 확인 구역으로 분류
-- 아니면, 재촬영 뒤에도 `unmeasurable`인 면이 있으면 → 최종 `unmeasurable`, 사람 확인 구역으로 분류
-- 두 면 모두 `no_anomaly` → 최종 `no_anomaly`, 정상 구역으로 분류
-- 이상 의심·측정 불가가 없고 한 면이라도 `review` → 최종 `review`, 사람 확인 구역으로 분류
-- A/B 두 면이 모두 있어야 하며 알 수 없는 판정값은 오류로 중단한다.
+- 검사 대상 면 중 하나라도 `suspect` → 최종 `suspect`, **빨강 영역**으로 분류
+- 아니면, 재촬영 뒤에도 `unmeasurable`인 면이 있으면 → 최종 `unmeasurable`, **빨강 영역**으로 분류
+- 검사 대상 면 모두 `no_anomaly` → 최종 `no_anomaly`, **파랑 영역**으로 분류
+- 이상 의심·측정 불가가 없고 한 면이라도 `review` → 최종 `review`, **빨강 영역**으로 분류(불량 확정이 아닌 확인 필요)
+- 설정된 검사면(`FACES=A,B` 또는 `A,B,C`)이 모두 있어야 하며, 누락·센서 오류·알 수 없는 판정값은 분류 이동 없이 중단한다.
+- 기존 API/DB 키는 유지한다: `bin=ok` → `bin_ok` 자세 → 파랑 영역, `bin=human` → `bin_human` 자세 → 빨강 영역. 영역에 도착한 뒤 그리퍼를 열고 홈으로 복귀한다. 색에 따른 좌표 자동 검출은 하지 않으며 두 자세는 현장에서 가르친다.
+- `GET /api/status`의 `zones`는 영역별 `label`, `color`, `pose`를 제공한다. `current`/`last_result`의 `destination`은 결정한 목적지이며 배치 완료 증거가 아니다. 실제 배치 단계는 기존 `placed_bin`과 `routing_status`로 구분한다. `robot_mode=mock`에서는 이 완료도 모의 동작이다.
+- `destination`과 결정 이벤트는 현재 상태 응답에만 추가한다. DB/CSV는 기존 `bin`·`placed_bin`을 보존하며 새로운 필드의 영구 저장이나 실제 위치 측정을 주장하지 않는다.
 - 완료 기록 저장 실패는 스테이션 상태 `error`와 `persistence_error`로 노출한다. 이미 끝난 검사 판정·실제 분류함은 보존하며 추가 로봇 동작이나 자동 재실행은 하지 않는다. 실패 기록은 DB에 없을 수 있으므로 `/api/status`의 `last_result`를 확인한다.
 - `/api/status`의 `busy`는 기록 저장까지 실행 중인지 나타낸다. 저장 중에는 `state=saving`, `busy=true`이며 새 검사·일시정지·재개·중단 요청은 HTTP 409로 거부한다. 저장이 끝나야 완료 상태와 다음 실행을 허용한다.
 - 한 면에서 이상이 나와도 다른 면 검사는 그대로 진행해 기록한다. 다른 면의 정상 결과로 이상을 지우지 않는다.

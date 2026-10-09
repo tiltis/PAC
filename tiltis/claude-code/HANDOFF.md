@@ -53,3 +53,11 @@ f09b907은 옮기기 전 경로 `tiltis/PAC2026_system/`에 다시 올라갔던 
 - 스테이션 `FACES` 환경변수(`run_all.bat ... -Faces A,B,C`, 기본 A,B). `sequencer.parse_faces/decide(faces)`, `robot.POSE_NAMES`에 `face_C`, 웹 화면은 검사하는 면 수만큼 카드 표시. 센서 `/inspect`와 rig가 face C 허용. CONTRACT 갱신.
 - 실행: 노트북 실제 카메라 + 가짜 로봇으로 `FACES=A,B,C` 1회 → 이동 순서 home > pick_approach > pick > lift > face_A > face_B > face_C > bin_human > home, 면 3개 모두 기록. 테스트: 스테이션 106 통과(3면 순서·누락 면 거부 테스트 추가).
 - 현장: `teach.py`에서 `face_C` 자세를 가르치고, 면 B·C 테이프 영역을 `roi-tape --face B/C --auto`로 잡아 fit 할 것. face_C 자세가 없으면 `-Faces A,B`로 실행.
+
+## Codex 후속: 파랑·빨강 분류 (2026-10-09)
+
+사용자 요청에 따라 기존 정상 `ok`/`bin_ok`는 파랑 영역, 불량 의심·확인 필요 `human`/`bin_human`은 빨강 영역으로 연결했다. 기존 검사·티칭·SDK·DB 키를 유지했다. `station/sequencer.py`의 명시적 영역 매핑과 상태 메타데이터, `web/index.html`의 색/모의 로봇 표시, `teach.py`의 영역 안내 및 CONTRACT·station README·현장 순서·예시 자세 설명을 갱신했다. 상대 폴더 변경 이유는 사용자 요구이며 검사 순서 구현을 중복하지 않기 위해 이 연결부를 수정했다.
+
+3면 검사에서 정상/이상 의심/미판정/지속 측정 불가 각각의 목적지와 도착 후 그리퍼 해제·홈 복귀 회귀 4개 및 기존 모의 API 확인을 추가했다. 전체 스테이션 **110 passed, 4 warnings(54.61s)**. [Codex 인계](../codex/HANDOFF.md)에 실행 명령과 한계가 있다. 런타임 `destination`은 배치/실측 증거가 아니며 DB/CSV는 기존 `bin`, `placed_bin`을 유지한다.
+
+현장 `bin_ok`, `bin_human`의 실제 위치는 미티칭이며 실기 구동은 수행하지 않았다. 실행 중 배포본도 교체하지 않았다. 별도 8002 미리보기 실행은 자동 정책에 차단되어 변경 화면은 소스에서 검토해야 한다. 다음 Claude 작업은 두 영역 티칭·기존 접근 및 중단 문제·현장 경로 검증을 먼저 확인하고 이어서 한다.
