@@ -34,25 +34,25 @@
       "gripper.pos": 54.73393227366966
     },
     "face_A": {
-      "shoulder_pan.pos": -7.78021978021978,
-      "shoulder_lift.pos": 43.42857142857143,
-      "elbow_flex.pos": -1.7142857142857142,
-      "wrist_flex.pos": -36.0,
-      "wrist_roll.pos": -77.14285714285714,
+      "shoulder_pan.pos": -7.75722323972503,
+      "shoulder_lift.pos": 34.713071833011405,
+      "elbow_flex.pos": -0.6124803526222483,
+      "wrist_flex.pos": -28.386336177802153,
+      "wrist_roll.pos": -87.1075742124377,
       "gripper.pos": 54.94125777470629
     },
     "face_B": {
       "shoulder_pan.pos": -7.6923076923076925,
-      "shoulder_lift.pos": 28.65934065934066,
-      "elbow_flex.pos": -41.45054945054945,
+      "shoulder_lift.pos": 19.65934065934066,
+      "elbow_flex.pos": -37.45054945054945,
       "wrist_flex.pos": 73.71428571428571,
       "wrist_roll.pos": -77.23076923076923,
       "gripper.pos": 55.01036627505184
     },
     "face_C": {
       "shoulder_pan.pos": -6.021978021978022,
-      "shoulder_lift.pos": 74.1978021978022,
-      "elbow_flex.pos": -46.46153846153846,
+      "shoulder_lift.pos": 65.1978021978022,
+      "elbow_flex.pos": -40.46153846153846,
       "wrist_flex.pos": -93.31868131868131,
       "wrist_roll.pos": -77.14285714285714,
       "gripper.pos": 57.083621285418104
@@ -66,11 +66,11 @@
       "gripper.pos": 57.01451278507257
     },
     "bin_human": {
-      "shoulder_pan.pos": -28.175824175824175,
-      "shoulder_lift.pos": 79.82417582417582,
-      "elbow_flex.pos": -46.72527472527472,
-      "wrist_flex.pos": -15.164835164835164,
-      "wrist_roll.pos": -86.37362637362638,
+      "shoulder_pan.pos": -28.17532496480246,
+      "shoulder_lift.pos": 66.20231363985374,
+      "elbow_flex.pos": -34.29549646061228,
+      "wrist_flex.pos": -13.972749098323229,
+      "wrist_roll.pos": -87.13118542536655,
       "gripper.pos": 56.94540428472702
     },
     "pick_approach_white": {

@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 DEFAULT_DURATIONS = {  # 이동별 기본 소요 시간(초). 현장에서 조정
     "home": 2.0, "pick_approach": 2.0, "pick": 1.5, "lift": 1.5,
-    "face_A": 3.0, "face_B": 3.0, "face_C": 3.5, "bin_ok": 3.0, "bin_human": 3.0,  # 10-09 현장: 상자 들고 손목 160° 회전은 2초로 부족
+    "face_A": 3.0, "face_B": 3.0, "face_C": 3.5, "bin_ok": 4.0, "bin_human": 4.0,  # 10-09 현장: 놓기 자세는 천천히(바닥에 '팍' 내려놓던 것)
     "vision_approach": 2.5, "vision_grasp": 1.5, "vision_lift": 1.5,
 }
 
@@ -51,6 +51,8 @@ def parse_faces(text) -> tuple:
 def decide(final_by_face: dict, faces=DEFAULT_FACES) -> tuple:
     """CONTRACT 최종 판정 규칙. 면별 최종 verdict -> (최종 verdict, 분류함). 검사하기로 한 면이 하나라도 빠지면 오류."""
     verdicts = list(final_by_face.values())
+    if "suspect" in verdicts and set(final_by_face) <= set(faces) and final_by_face:
+        return "suspect", "human"  # 불량 확정이면 남은 면이 없어도 빨강(조기 종료)
     if set(final_by_face) != set(faces) or any(
             v not in ("suspect", "unmeasurable", "review", "no_anomaly") for v in verdicts):
         raise SequenceError(f"불완전하거나 알 수 없는 면별 판정: {final_by_face}")
@@ -350,8 +352,16 @@ class Sequencer:
 
     def _settle(self, face: str) -> None:
         def fn():
-            if not self.robot.wait_settled(self.settle_timeout_s):
-                raise SequenceError(f"면 {face} 자세 안정화 시간 초과")
+            if self.robot.wait_settled(self.settle_timeout_s):
+                return
+            # 10-09 현장: 상자를 들고 뻗으면 서보가 목표 ±5° 안에 간헐적으로 못 들어온다. 팔이 더 움직이지 않으면(정지) 촬영을 진행하고 기록만 남긴다
+            still = getattr(self.robot, "is_still", None)
+            moving = (not still()) if callable(still) else False
+            if moving:
+                raise SequenceError(f"면 {face} 자세 안정화 시간 초과(팔이 계속 움직임)")
+            with self._lock:
+                self._cur.setdefault("warnings", []).append(f"settle_timeout_{face}")
+            self._emit(f"settle:{face}", "warning", detail="목표 각도 밖이지만 정지 상태라 진행")
         self._step(f"settle:{face}", fn)
 
     def _inspect(self, face: str, attempt: int) -> dict:
@@ -453,6 +463,13 @@ class Sequencer:
         finals = {}
         for face in self.faces:  # 기본 A·B. 3면 테이프 검사는 FACES=A,B,C로 face_C 자세(손목을 더 돌려 3번째 면)를 추가한다
             finals[face] = self._inspect_face(face)
+            if finals[face] == "suspect" and getattr(self, "early_exit_on_suspect", True):
+                # 10-09 현장 결정: 테이프 부족 등 불량이 확정되면 남은 면(밑면 등)은 보지 않고 바로 빨강 영역으로
+                skipped = [f for f in self.faces if f not in finals]
+                with self._lock:
+                    self._cur["skipped_faces"] = skipped
+                self._emit("early_exit", "end", face=face, skipped=skipped)
+                break
         verdict, bin_name = decide(finals, self.faces)
         self._cur["final_verdict"] = verdict
         self._cur["bin"] = bin_name

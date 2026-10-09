@@ -152,7 +152,8 @@ def cmd_count_golden(a):
         n = len(big) if a.expected <= 0 else min(a.expected, len(big))
         used = big[:n]
         entry = {"face": face, "roi_rgb": None, "expected": n, "min_area_px": int(min(used) * 0.5), "merge_px": 9,
-                 "golden_areas": used, "golden_total_area_px": int(sum(used)), "min_total_area_frac": None}  # 면적 보정은 끈다(10-09: 테이프 1개 빠져도 면적 85% 남아 통과시킴)
+                 "golden_areas": used, "golden_total_area_px": int(sum(used)), "min_total_area_frac": None,
+                 "extra_is_uncertain": False}  # 면적 보정은 끈다(10-09: 테이프 1개 빠져도 면적 85% 남아 통과시킴)
         counts.append(entry)
         print(f"  {d.name}: 면 {face} 덩어리 {areas[:6]} → 기대 {n}개, 최소 면적 {entry['min_area_px']}px")
     if not counts:
@@ -166,6 +167,33 @@ def cmd_count_golden(a):
     cfg_save(cfg)
     print("validated: True (golden-run). 면별 기대 개수:", {c["face"]: c["expected"] for c in counts},
           "| 검사 없는 면(통과):", cfg["faces_without_checks_ok"])
+
+
+def cmd_bottom_golden(a):
+    """멀쩡한 밑면(면 C) 촬영 여러 장에서 윤곽선 밀도 기준을 잡는다: edge_max = 평균 × factor. 열린 밑면 샘플(--open)이 있으면 분리되는지 확인."""
+    cfg = cfg_load()
+    ok = []
+    for d in a.captures:
+        vis, _, face = load_capture(Path(d))
+        bb = rules.box_region_bbox(vis)
+        if bb is None:
+            print(f"  {Path(d).name}: 상자 영역 못 찾음(건너뜀)"); continue
+        ft = rules.bottom_features(vis, bb); ok.append(ft)
+        print(f"  {Path(d).name}: 면 {face} edge {ft['edge']:.4f} dark {ft['dark']:.4f} bbox {bb}")
+    if not ok:
+        raise SystemExit("정상 밑면 샘플이 없음")
+    edge_max = round(max(f["edge"] for f in ok) * a.factor, 4)  # 정상 최대 × 여유
+    dark_max = round(max(f["dark"] for f in ok) * a.factor, 4)
+    opens = []
+    for d in a.open or []:
+        vis, _, _ = load_capture(Path(d)); bb = rules.box_region_bbox(vis)
+        if bb: opens.append(rules.bottom_features(vis, bb))
+    sep = all(o["edge"] > edge_max or o["dark"] > dark_max for o in opens) if opens else None
+    cfg["bottom_check"] = {"face": a.face, "edge_max": edge_max, "dark_max": dark_max, "golden_n": len(ok),
+                           "golden": ok, "open_samples": opens, "separable": sep}
+    cfg["faces_without_checks_ok"] = [f for f in cfg.get("faces_without_checks_ok", []) if f != a.face]
+    cfg_save(cfg)
+    print(f"면 {a.face} 밑면 기준 edge_max={edge_max} dark_max={dark_max} (정상 최대×{a.factor}); 열림 샘플 {opens} 분리={sep}")
 
 
 def cmd_roi_coolant(a):
@@ -300,10 +328,16 @@ def main():
     s.add_argument("--expected", type=int, default=0, help="면당 기대 개수 상한(0=보이는 대로)")
     s.add_argument("--min-area-floor", type=int, default=400, help="이보다 작은 초록은 잡음으로 무시(px)")
     s.add_argument("--source-id", required=True)
+    s = sub.add_parser("bottom-golden")
+    s.add_argument("--captures", nargs="+", required=True, help="멀쩡한 밑면 면 C 촬영 폴더들")
+    s.add_argument("--open", nargs="*", default=[], help="열린 밑면 촬영 폴더(분리 확인용)")
+    s.add_argument("--face", default="C")
+    s.add_argument("--factor", type=float, default=1.2)
     s = sub.add_parser("timing")
     s.add_argument("--session", required=True)
     a = ap.parse_args()
-    {"roi-tape": cmd_roi_tape, "roi-tape-count": cmd_roi_tape_count, "count-golden": cmd_count_golden, "roi-coolant": cmd_roi_coolant,
+    {"roi-tape": cmd_roi_tape, "roi-tape-count": cmd_roi_tape_count, "count-golden": cmd_count_golden, "bottom-golden": cmd_bottom_golden,
+     "roi-coolant": cmd_roi_coolant,
      "fit": cmd_fit, "eval": cmd_eval, "timing": cmd_timing}[a.cmd](a)
 
 

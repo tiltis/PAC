@@ -73,6 +73,50 @@ def tape_blob_areas(vis, roi, color=None, merge_px=9):
     return sorted((int(st[i, cv2.CC_STAT_AREA]) for i in range(1, n)), reverse=True)
 
 
+CARDBOARD = {"h": [8, 25], "s_min": 60, "v_min": 60}  # 갈색 골판지(현장 상자) 색 범위
+
+
+def box_region_bbox(vis, color=None, min_area_px=20000):
+    """RGB에서 골판지 색 가장 큰 덩어리의 bbox(x0,y0,x1,y1). 로봇이 든 상자 영역을 잡는다. 없으면 None."""
+    c = color or CARDBOARD
+    hsv = cv2.cvtColor(vis, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    m = ((H >= c["h"][0]) & (H <= c["h"][1]) & (S >= c["s_min"]) & (V >= c["v_min"])).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    if n <= 1:
+        return None
+    i = 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA]))
+    if st[i, cv2.CC_STAT_AREA] < min_area_px:
+        return None
+    x, y, w, h = (int(v) for v in st[i, :4])
+    return [x, y, x + w, y + h]
+
+
+def bottom_features(vis, bbox, canny=(60, 160), color=None):
+    """밑면 열림 지표 2개(상자 영역 안, 테이프 색 제외):
+    edge = 골판지 영역 안 윤곽선 비율(열린 날개의 접힌 선·내부가 드러나면 커짐; 10-09 현장 정상 0.027~0.037, 열림 0.049)
+    dark = 골판지 영역 안 어두운 틈 비율(열린 날개 그림자; 정상 ≤0.065, 열림 0.098)"""
+    x0, y0, x1, y1 = bbox
+    roi = vis[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    c = color or CARDBOARD
+    card = (H >= c["h"][0]) & (H <= c["h"][1]) & (S >= c["s_min"]) & (V >= c["v_min"])
+    g = GREEN
+    green = (H >= g["h"][0]) & (H <= g["h"][1]) & (S >= g["s_min"]) & (V >= g["v_min"])
+    card_d = cv2.dilate(card.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    keep = card_d & ~(cv2.dilate(green.astype(np.uint8), np.ones((15, 15), np.uint8)) > 0)
+    e = cv2.Canny(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), canny[0], canny[1]) > 0
+    edge = float((e & keep).sum() / max(int(keep.sum()), 1))
+    dark = float(((V < 70) & card_d & ~card).sum() / max(int(card_d.sum()), 1))
+    return {"edge": round(edge, 4), "dark": round(dark, 4)}
+
+
+def bottom_edge_density(vis, bbox, canny=(60, 160)):  # 예전 이름 유지
+    return bottom_features(vis, bbox, canny)["edge"]
+
+
 def _tape_count_for(cfg, face):
     """면별 개수 규칙: tape_counts(목록) 우선, 없으면 예전 단일 tape_count."""
     for t in cfg.get("tape_counts") or []:
@@ -105,6 +149,13 @@ def measure(face, vis, lwir_mean, cfg):
     tc = _tape_count_for(cfg, face)
     if tc:  # 방향 무관 개수 세기: 큰 덩어리 면적 목록(기준값 맞추기와 판정에 함께 쓴다)
         out["tape_blob_areas"] = tape_blob_areas(vis, tc.get("roi_rgb"), color, tc.get("merge_px", 9))[:8]
+    bc = cfg.get("bottom_check")
+    if bc and bc.get("face") == face:  # 밑면 열림: 상자 영역 윤곽선 밀도
+        bb = box_region_bbox(vis, bc.get("box_color"), bc.get("min_box_area_px", 20000))
+        out["bottom_box_bbox"] = bb
+        feats = bottom_features(vis, bb) if bb else None
+        out["bottom_edge_density"] = feats["edge"] if feats else None
+        out["bottom_dark_frac"] = feats["dark"] if feats else None
     c = cfg.get("coolant")
     if c and c.get("face") == face:
         out["coolant_delta_counts"] = round(coolant_delta(lwir_mean, c["roi_lwir"], c["ref_roi_lwir"]), 1)
@@ -164,6 +215,20 @@ def judge_face(face, vis, lwir_mean, cfg):
             reasons.append(f"tape_missing_count_{expected - count}")
         elif count is not None and count > expected and tc.get("extra_is_uncertain", True):
             uncertain.append("tape_extra_blobs")  # 초록이 더 보이면(배경·다른 상자) 자동 통과시키지 않는다
+    bc = cfg.get("bottom_check")
+    if bc and bc.get("face") == face:
+        dens, dark = m.get("bottom_edge_density"), m.get("bottom_dark_frac")
+        thr_e, thr_d = bc.get("edge_max"), bc.get("dark_max")
+        if dens is None:
+            f["bottom_open"] = None
+            uncertain.append("bottom_box_not_found")
+        elif thr_e is None and thr_d is None:
+            f["bottom_open"] = None
+            uncertain.append("bottom_threshold_missing")
+        else:  # 두 지표 중 하나라도 기준을 넘으면 열림(fail-closed)
+            f["bottom_open"] = bool((thr_e is not None and dens > thr_e) or (thr_d is not None and dark is not None and dark > thr_d))
+            if f["bottom_open"]:
+                reasons.append("bottom_open")
     c = cfg.get("coolant")
     if c and c.get("face") == face:
         d, thr, margin = m["coolant_delta_counts"], c.get("delta_max_counts"), c.get("margin_counts", 0)

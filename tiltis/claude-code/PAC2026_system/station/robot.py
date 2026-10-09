@@ -149,6 +149,9 @@ class MockRobot(RobotBase):
             return dict(self.poses["joints"][self._pose])
         return {k: 0.0 for k in JOINT_KEYS}
 
+    def is_still(self) -> bool:
+        return self.settle_ok  # 목업: 안정화 실패 주입이면 "계속 움직임"으로 취급해 기존 오류 동작 유지
+
     def gripper_reading(self) -> dict:
         # 가짜 값: 열림 100, 빈손 닫힘 0, 손잡이를 물면 35에서 멈춤
         pos = 100.0 if self._grip != "closed" else (35.0 if self._holding else 0.0)
@@ -274,6 +277,18 @@ class So101Robot(RobotBase):
         if value is None:
             raise RobotError(f"poses.json에 gripper.{state} 값이 없다")
         self._move_joints({"gripper.pos": float(value)}, 0.6)
+
+    def is_still(self, samples: int = 4, tol_deg: float = 0.5) -> bool:
+        """관절이 더 움직이지 않는지(연속 샘플 변화 < tol). 목표 도달 여부와 무관하게 정지만 본다."""
+        self._need_robot()
+        prev = None
+        for _ in range(samples):
+            cur = self.current_joints()
+            if prev is not None and any(abs(cur[k] - prev[k]) > tol_deg for k in cur):
+                return False
+            prev = cur
+            time.sleep(0.1)
+        return True
 
     def gripper_reading(self, timeout_s: float = 1.5) -> dict:
         """그리퍼가 멈출 때까지(연속 3회 변화 < 0.5) 기다린 뒤 위치를 읽는다. 물체에 막히면 그 자리에서 멈춘다."""

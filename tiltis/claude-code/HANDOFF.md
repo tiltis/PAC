@@ -138,3 +138,14 @@ auto hand-eye의 frac(높이 비율)를 그리퍼 개방률로 덮어쓰는 오�
   Codex teach.py 가 쓰는 camera_grasp_point 보조 함수는 Codex 버전에서 가져와 유지했다. locate.py·server.py·테스트·가드는 Codex 버전 그대로.
 - 검증: 스테이션 117 통과, 센서 121 통과. 실기 DryRun 결과는 아래 줄에 추가.
 - poses.json/handeye.json 은 노트북 실측본으로 갱신. 동기화는 삭제 없이 덮어쓰기만.
+
+
+## 2026-10-09 Claude 실행 폴더 추가 작업 GitHub 반영 (Codex)
+
+사용자의 전체 푸시 요청으로 origin/main 4ce4d59를 fast-forward한 뒤 C:/PAC2026_system과 파일별 비교했다. Claude 실행본의 밑면 골판지 영역/edge·dark 판정과 bottom-golden 보정 CLI, 추가 테이프 허용 설정, suspect 조기 종료·skipped_faces 기록, 정지 확인 후 안정화 경고, 분류 이동 4초, 관련 sequencer 테스트를 공유 소스에 반영했다. 최신 저장 poses와 가운데 흰 면 pick ROI도 기존 추적 경로에 반영했다. 갈색/흰색/common replay 및 Linux 실행·설치 스크립트를 복원했다. 현재 GitHub grasp는 실행본과 동일하며 기존 통합 변경은 유지했다.
+
+직접 검증: station/tests/test_sequencer.py 49 passed, 1 warning (8.32s); sensor/tests/test_rules.py 13 passed, 4 warnings (11.61s); 변경 Python 5개 AST/JSON 2개 파싱 통과. 실기 이동·서버 재시작·실행본 교체 없음. 신규 밑면 현장 성능은 이번에 실측하지 않았다.
+
+동시 작업으로 남아 있던 native RGB-D/depth/server 및 codex RGB/SAM/preview 변경은 이 Claude 실행본 스냅샷 커밋에 포함하지 않는다. 영상·로그·DB·가상환경·비밀값과 현장 보정 백업 파일도 제외한다. 기존에 추적하지 않던 robot_setup 팩은 3dffdae에서 제거된 이력이 있어 자동으로 재추가하지 않았다.
+
+추가 전체 검증: station/tests **118 passed, 4 warnings (82.50s)**. 명령: 시스템 폴더에서 C:/PAC2026_system/.venv-station/Scripts/python.exe -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=. 초기 경로 지정 두 건은 수집 실패 후 올바른 폴더/파일로 재실행했다.

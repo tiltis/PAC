@@ -215,3 +215,14 @@ Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57Z
 현장 결과: 기존 8001은 found=true 상자 약80×80×47.6mm를 반환했지만 candidate_count/captured_at_s가 없는 구버전 계약이다. API는 single_box_not_confirmed/workspace_not_measured 및 sam_live_connected=false로 차단한다. 첫 확인 영상에는 상자 두 개, 이후 화면에는 한 개가 보였으나 후보 수를 구버전 응답으로 확정하지 않는다. 실제 RGB-depth 정합/paired frame reader, 실측 workspace, 수정된 파지 기준의 hand-eye/TCP 검증이 아직 필요하다. 가상 값으로 채우거나 실기 완료라고 주장하지 않는다. 실제 이동 승인 요청은 실행 가능한 실측 조건을 확보한 뒤에 한다.
 
 최종 누락 보정 해시 회귀 `station/tests/test_grasp_check.py`: 8 pass/1warning(1.45s). 코드 셀/노트북이나 GPU는 이번에 실행하지 않았다. 실행 화면은 별도8002이고 실제8000으로 통합 소스를 배포한 결과가 아니다.
+
+
+## 2026-10-09 Claude 실행 폴더 추가 작업 GitHub 반영 (Codex)
+
+사용자의 전체 푸시 요청으로 origin/main 4ce4d59를 fast-forward한 뒤 C:/PAC2026_system과 파일별 비교했다. Claude 실행본의 밑면 골판지 영역/edge·dark 판정과 bottom-golden 보정 CLI, 추가 테이프 허용 설정, suspect 조기 종료·skipped_faces 기록, 정지 확인 후 안정화 경고, 분류 이동 4초, 관련 sequencer 테스트를 공유 소스에 반영했다. 최신 저장 poses와 가운데 흰 면 pick ROI도 기존 추적 경로에 반영했다. 갈색/흰색/common replay 및 Linux 실행·설치 스크립트를 복원했다. 현재 GitHub grasp는 실행본과 동일하며 기존 통합 변경은 유지했다.
+
+직접 검증: station/tests/test_sequencer.py 49 passed, 1 warning (8.32s); sensor/tests/test_rules.py 13 passed, 4 warnings (11.61s); 변경 Python 5개 AST/JSON 2개 파싱 통과. 실기 이동·서버 재시작·실행본 교체 없음. 신규 밑면 현장 성능은 이번에 실측하지 않았다.
+
+동시 작업으로 남아 있던 native RGB-D/depth/server 및 codex RGB/SAM/preview 변경은 이 Claude 실행본 스냅샷 커밋에 포함하지 않는다. 영상·로그·DB·가상환경·비밀값과 현장 보정 백업 파일도 제외한다. 기존에 추적하지 않던 robot_setup 팩은 3dffdae에서 제거된 이력이 있어 자동으로 재추가하지 않았다.
+
+추가 전체 검증: station/tests **118 passed, 4 warnings (82.50s)**. 명령: 시스템 폴더에서 C:/PAC2026_system/.venv-station/Scripts/python.exe -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=. 초기 경로 지정 두 건은 수집 실패 후 올바른 폴더/파일로 재실행했다.

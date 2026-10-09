@@ -89,10 +89,11 @@ def test_suspect_on_b_still_inspects_both():
 
 
 def test_suspect_on_a_is_not_erased_by_b_ok():
+    # 10-09 정책: 테이프 부족이 확정되면 남은 면은 보지 않고 바로 빨강(조기 종료)
     _, sensor, seq = make({("A", 0): "suspect"})
     r = seq.run("S02", "t")
     assert r["final_verdict"] == "suspect" and r["bin"] == "human"
-    assert sensor.calls == [("A", 0), ("B", 0)]
+    assert sensor.calls == [("A", 0)]
 
 
 def test_unmeasurable_once_then_ok():
@@ -255,8 +256,14 @@ def test_decide_never_passes_unknown_verdict():
         decide({})
 
 
+def test_decide_partial_with_suspect_is_human():
+    # 조기 종료로 남은 면이 None이어도 suspect가 확정이면 빨강
+    from sequencer import decide
+    assert decide({"A": "suspect", "B": None}) == ("suspect", "human")
+
+
 @pytest.mark.parametrize("finals", [
-    {"A": "no_anomaly"}, {"A": "suspect", "B": None},
+    {"A": "no_anomaly"},
     {"A": "unmeasurable", "B": "bogus"},
     {"A": "no_anomaly", "B": "no_anomaly", "C": "no_anomaly"},
 ])
@@ -464,3 +471,13 @@ def test_box_type_selects_taught_pose_variant_and_falls_back():
     assert all(g["threshold_frac"] == 0.2 for g in r["grasp_checks"])  # held_white 40/100 → 기준 절반 0.2
     r2 = Sequencer(MockRobot(speed=0, poses=poses), FakeSensor(), settle_timeout_s=0.1).run("B1", "t", box_type="brown")
     assert r2["state"] == "done"  # brown 자세가 없으면 공통 자세로
+
+
+def test_suspect_face_exits_early_and_skips_remaining_faces():
+    # 테이프 부족이 면 B에서 확정되면 면 C는 보지 않고 빨강으로
+    robot, sensor, _ = make({("B", 0): "suspect"})
+    seq = Sequencer(robot, sensor, settle_timeout_s=0.1, faces="A,B,C")
+    r = seq.run("EX1", "t")
+    assert r["state"] == "done" and r["final_verdict"] == "suspect" and r["placed_bin"] == "human"
+    assert [i["face"] for i in r["inspections"]] == ["A", "B"] and r["skipped_faces"] == ["C"]
+    assert "face_C" not in robot.moves()
