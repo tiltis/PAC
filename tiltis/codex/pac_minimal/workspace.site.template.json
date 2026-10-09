@@ -1,0 +1,10 @@
+{
+  "profile": "unconfigured",
+  "coordinate_frame": "robot_base",
+  "units": "m",
+  "x_m": [null, null],
+  "y_m": [null, null],
+  "fixed_z_m": null,
+  "target_speed_m_s": 0.01,
+  "note": "Fill only after robot base axes, URDF metre units, measured EE and collision/reachability checks. Set profile to commissioned after site verification and obtain user approval before hardware motion."
+}

@@ -1,0 +1,5 @@
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.21
+Flask>=3,<4
+numpy==1.26.4
+pyserial==3.5

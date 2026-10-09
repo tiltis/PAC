@@ -1,0 +1,1825 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,4 @@
++__pycache__/
++*.pyc
++logs/
++.venv/
+diff --git a/check_laptop.py b/check_laptop.py
+new file mode 100644
+--- /dev/null
++++ b/check_laptop.py
+@@ -0,0 +1,16 @@
++"""Environment and serial inventory only; never opens ports or enables torque."""
++import importlib.util
++import json
++import platform
++import sys
++
++result = dict(python=sys.version,executable=sys.executable,platform=platform.platform(),
++              modules={m:bool(importlib.util.find_spec(m)) for m in
++                       ['cv2','mediapipe','flask','numpy','lerobot','placo','serial']})
++try:
++    from serial.tools import list_ports
++    result['ports'] = [dict(device=p.device,description=p.description,vid=p.vid,pid=p.pid,
++                           serial_number=p.serial_number) for p in list_ports.comports()]
++except ImportError:
++    result['ports'] = 'pyserial not installed; run python -m pip install pyserial'
++print(json.dumps(result,ensure_ascii=False,indent=2))
+diff --git a/control.py b/control.py
+new file mode 100644
+--- /dev/null
++++ b/control.py
+@@ -0,0 +1,78 @@
++"""Normalized wrist input to bounded Cartesian targets (metres)."""
++import math
++import threading
++import time
++from workspace import Workspace
++
++
++class Controller:
++    def __init__(self, clock=time.monotonic, workspace=None):
++        self.clock = clock
++        self.workspace = workspace or Workspace()
++        self.lock = threading.RLock()
++        self.enabled = False
++        self.valid = False
++        self.reason = 'manual_enable_required'
++        self.position = self.workspace.center()
++        self.updated = None
++        self.sequence = 0
++
++    def stop(self, reason='manual_stop'):
++        with self.lock:
++            self.enabled = False
++            self.reason = reason
++
++    def update(self, wrist, count, captured_at):
++        with self.lock:
++            now = self.clock()
++            previous = self.updated
++            self.updated = captured_at
++            self.sequence += 1
++            self.valid = False
++            if not math.isfinite(captured_at) or not 0 <= now - captured_at <= .2:
++                self.stop('stale_frame')
++                return
++            if count != 1 or wrist is None:
++                self.stop('single_hand_required')
++                return
++            u, v = wrist
++            if not all(math.isfinite(x) and .1 <= x <= .9 for x in (u, v)):
++                self.stop('outside_input_area')
++                return
++            self.valid = True
++            # Windows Python 3.10 monotonic timestamps can be equal for distinct
++            # frames within one clock tick; these yield a zero movement budget.
++            if previous is not None and captured_at < previous:
++                self.valid = False
++                self.stop('capture_time_regression')
++                return
++            if previous is not None and captured_at - previous > .2:
++                self.stop('frame_gap')
++            if not self.enabled:
++                return
++            target = self.workspace.map_wrist(u, v)
++            dt = min(.05, max(0., captured_at - previous)) if previous is not None else 0.
++            delta = [b-a for a, b in zip(self.position, target)]
++            distance = math.sqrt(sum(x*x for x in delta))
++            scale = min(1., self.workspace.target_speed_m_s * dt / distance) if distance else 0.
++            self.position = [a + scale*d for a, d in zip(self.position, delta)]
++
++    def state(self):
++        with self.lock:
++            age = self.clock() - self.updated if self.updated is not None else None
++            if age is None or not 0 <= age <= .2:
++                self.valid = False
++                self.stop('stale_frame')
++            return dict(position_m=list(self.position), motion_enabled=self.enabled,
++                        input_valid=self.valid, reason=self.reason, frame_id=self.sequence,
++                        frame_age_s=age, coordinate_frame='robot_base', units='m',
++                        workspace=self.workspace.metadata())
++
++    def enable(self):
++        with self.lock:
++            self.state()
++            if not self.valid:
++                return False
++            self.enabled = True
++            self.reason = 'enabled'
++            return True
+diff --git a/hack_qut.py b/hack_qut.py
+--- a/hack_qut.py
++++ b/hack_qut.py
+@@ -1,84 +1,75 @@
+-import cv2
+-import mediapipe as mp
+-import numpy as np
+-import math
+-from flask import Flask
+-from flask_socketio import SocketIO
++"""Reuses the original OpenCV / MediaPipe / Flask wrist pipeline."""
++import argparse
+ import threading
+ import time
+-from scipy.spatial.transform import Rotation as R
++from pathlib import Path
++from flask import Flask, jsonify, send_file
++from control import Controller
++from workspace import Workspace
+ 
+ app = Flask(__name__)
+-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
++controller = Controller()
+ 
+-REAL_HAND_WIDTH_CM = 7.0
+-FOCAL_LENGTH = 600.0
+-TARGET_Z = 30.0
+ 
+-mp_hands = mp.solutions.hands
+-hands = mp_hands.Hands(model_complexity=0, max_num_hands=1,
+-                       min_detection_confidence=0.7, min_tracking_confidence=0.7)
++@app.get('/')
++def index():
++    return send_file(Path(__file__).with_name('index.html'))
+ 
+-def run_camera():
+-    cap = cv2.VideoCapture(0)
+-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+-    cx, cy = width // 2, height // 2
+ 
+-    while cap.isOpened():
+-        ret, frame = cap.read()
+-        if not ret: break
++@app.get('/api/state')
++def state():
++    return jsonify(controller.state())
+ 
+-        frame = cv2.flip(frame, 1)
+-        results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+ 
+-        if results.multi_hand_landmarks:
+-            for hand_landmarks in results.multi_hand_landmarks:
+-                lm = hand_landmarks.landmark
+-                wrist_u, wrist_v = int(lm[0].x * width), int(lm[0].y * height)
++@app.post('/api/enable')
++def enable():
++    return jsonify(ok=controller.enable(), state=controller.state())
+ 
+-                p0 = np.array([lm[0].x, lm[0].y, lm[0].z])
+-                p5 = np.array([lm[5].x, lm[5].y, lm[5].z])
+-                p17 = np.array([lm[17].x, lm[17].y, lm[17].z])
+ 
+-                v1 = p5 - p0
+-                v2 = p17 - p0
+-                z_axis = np.cross(v1, v2)
+-                z_axis /= (np.linalg.norm(z_axis) + 1e-6)
+-                x_axis = v1 / (np.linalg.norm(v1) + 1e-6)
+-                y_axis = np.cross(z_axis, x_axis)
++@app.post('/api/stop')
++def stop():
++    controller.stop()
++    return jsonify(controller.state())
+ 
+-                rot_matrix = np.stack([x_axis, y_axis, z_axis], axis=1)
+-                quat = R.from_matrix(rot_matrix).as_quat()
+ 
+-                p_width_px = math.sqrt(((lm[5].x - lm[17].x) * width) ** 2 + ((lm[5].y - lm[17].y) * height) ** 2)
+-                z_cam = (REAL_HAND_WIDTH_CM * FOCAL_LENGTH) / (p_width_px + 1e-6)
+-                pos_x = round((lm[0].x * width - cx) * z_cam / FOCAL_LENGTH, 2)
+-                pos_y = round(-(lm[0].y * height - cy) * z_cam / FOCAL_LENGTH, 2)
+-                pos_z = round(z_cam - TARGET_Z, 2)
++def run_camera(camera_index=0, preview=True):
++    import cv2
++    import mediapipe as mp
++    cap = cv2.VideoCapture(camera_index)
++    try:
++        with mp.solutions.hands.Hands(model_complexity=0, max_num_hands=2,
++                                     min_detection_confidence=.7,
++                                     min_tracking_confidence=.7) as hands:
++            while cap.isOpened():
++                captured = time.monotonic()
++                ok, frame = cap.read()
++                if not ok:
++                    break
++                frame = cv2.flip(frame, 1)
++                result = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
++                found = result.multi_hand_landmarks or []
++                wrist = found[0].landmark[0] if len(found) == 1 else None
++                controller.update((wrist.x, wrist.y) if wrist else None, len(found), captured)
++                h, w = frame.shape[:2]
++                cv2.rectangle(frame, (int(w*.1), int(h*.1)), (int(w*.9), int(h*.9)), (0,255,255), 2)
++                if wrist:
++                    cv2.circle(frame, (int(wrist.x*w), int(wrist.y*h)), 8, (0,255,0), -1)
++                if preview:
++                    cv2.imshow('PAC wrist input - Q to stop', frame)
++                    if cv2.waitKey(1) & 255 == ord('q'):
++                        break
++    finally:
++        controller.stop('camera_stopped')
++        cap.release()
++        cv2.destroyAllWindows()
+ 
+-                payload = {
+-                    'x': pos_x, 'y': pos_y, 'z': pos_z,
+-                    'qx': round(quat[0], 4), 'qy': round(quat[1], 4),
+-                    'qz': round(quat[2], 4), 'qw': round(quat[3], 4)
+-                }
+-                socketio.emit('hand_update', payload)
+-
+-                log_msg = f"Pos: [{pos_x:>6.2f}, {pos_y:>6.2f}, {pos_z:>6.2f}] | Quat: [{quat[0]:>5.2f}, {quat[1]:>5.2f}, {quat[2]:>5.2f}, {quat[3]:>5.2f}]"
+-                print(log_msg)
+-
+-                cv2.circle(frame, (wrist_u, wrist_v), 8, (0, 255, 0), -1)
+-                info_text = f"XYZ: {pos_x}, {pos_y}, {pos_z}"
+-                cv2.putText(frame, info_text, (wrist_u + 15, wrist_v),
+-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+-
+-        cv2.imshow('Hand Tracker 3.0', frame)
+-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+-        time.sleep(0.01)
+-
+-    cap.release()
+-    cv2.destroyAllWindows()
+ 
+ if __name__ == '__main__':
+-    threading.Thread(target=run_camera, daemon=True).start()
+-    socketio.run(app, host='127.0.0.1', port=5001, allow_unsafe_werkzeug=True)
+\ No newline at end of file
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--workspace', default=str(Path(__file__).with_name('workspace.virtual.json')))
++    parser.add_argument('--camera', type=int, default=0)
++    parser.add_argument('--no-preview', action='store_true')
++    args = parser.parse_args()
++    controller = Controller(workspace=Workspace.load(args.workspace))
++    threading.Thread(target=run_camera, args=(args.camera, not args.no_preview), daemon=True).start()
++    app.run(host='127.0.0.1', port=5001, threaded=True, use_reloader=False)
+diff --git a/index.html b/index.html
+--- a/index.html
++++ b/index.html
+@@ -1,112 +1,10 @@
+-<!DOCTYPE html>
+-<html>
+-<head>
+-    <meta charset="UTF-8">
+-    <title>3D Hand Tracker - Precise HUD & Rotation</title>
+-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+-    <style>
+-        body { margin: 0; background: #000; overflow: hidden; }
+-        #hud {
+-            position: fixed; top: 20px; left: 20px;
+-            color: #ffffff; font-family: 'Courier New', monospace;
+-            background: rgba(0, 0, 0, 0.7); padding: 15px;
+-            border-radius: 8px; border: 1px solid #00ff00; z-index: 100;
+-        }
+-        .val { color: #0ff; font-weight: bold; }
+-        .label { color: #0f0; font-size: 11px; margin-bottom: 5px; }
+-    </style>
+-</head>
+-<body>
+-    <div id="hud">
+-        <div class="label">SYSTEM STATUS: FULL TRACKING</div>
+-        <hr border="0.1" style="border-color:#333; margin-bottom:10px;">
+-        <div>X-pos: <span id="valX" class="val">0.00</span> cm</div>
+-        <div>Y-pos: <span id="valY" class="val">0.00</span> cm</div>
+-        <div style="border-top: 1px solid #333; margin-top: 5px; padding-top: 5px;">
+-            <div>Dist (from Cam): <span id="valZ_abs" class="val">30.00</span> cm</div>
+-            <div style="font-size: 11px; color: #888;">Rel (from Grid): <span id="valZ_rel">0.00</span> cm</div>
+-        </div>
+-    </div>
+-
+-    <script>
+-        const valX = document.getElementById('valX');
+-        const valY = document.getElementById('valY');
+-        const valZ_abs = document.getElementById('valZ_abs');
+-        const valZ_rel = document.getElementById('valZ_rel');
+-
+-        const scene = new THREE.Scene();
+-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+-        renderer.setSize(window.innerWidth, window.innerHeight);
+-        document.body.appendChild(renderer.domElement);
+-
+-        const S = 3.5;
+-        const GRID_Z = 30;
+-
+-        // 그리드 설정
+-        const grid = new THREE.GridHelper(400, 40, 0x00ff00, 0x444444);
+-        grid.position.set(0, 0, -GRID_Z * S);
+-        scene.add(grid);
+-
+-        const floor = new THREE.Mesh(
+-            new THREE.PlaneGeometry(400, 400),
+-            new THREE.MeshPhongMaterial({ color: 0x111111, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+-        );
+-        floor.rotation.x = -Math.PI / 2;
+-        floor.position.set(0, -0.1, -GRID_Z * S);
+-        scene.add(floor);
+-
+-        // 상자 설정
+-        const cube = new THREE.Mesh(
+-            new THREE.BoxGeometry(12, 12, 12),
+-            new THREE.MeshPhongMaterial({ color: 0x00ff00, shininess: 100 })
+-        );
+-        scene.add(cube);
+-
+-        // 조명 설정
+-        const light = new THREE.PointLight(0xffffff, 1.5, 1000);
+-        light.position.set(50, 200, 100);
+-        scene.add(light);
+-        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+-
+-        camera.position.set(0, 100, 100);
+-        camera.lookAt(0, 0, -GRID_Z * S);
+-
+-        const socket = io('http://127.0.0.1:5001', { transports: ['websocket'] });
+-
+-        socket.on('hand_update', (data) => {
+-            // HUD 업데이트 (z_cam 기준)
+-            const absZ = data.z;
+-
+-            valX.innerText = data.x.toFixed(2);
+-            valY.innerText = data.y.toFixed(2);
+-            valZ_abs.innerText = absZ.toFixed(2);
+-            valZ_rel.innerText = data.z.toFixed(2);
+-
+-    
+-            cube.position.set(data.x * S, data.y * S, -absZ * S);
+-
+-
+-            if(data.qw !== undefined) {
+-                cube.quaternion.set(data.qx, data.qy, data.qz, data.qw);
+-            }
+-        });
+-
+-        function animate() {
+-            requestAnimationFrame(animate);
+-
+-            renderer.render(scene, camera);
+-        }
+-        animate();
+-
+-        window.addEventListener('resize', () => {
+-            camera.aspect = window.innerWidth / window.innerHeight;
+-            camera.updateProjectionMatrix();
+-            renderer.setSize(window.innerWidth, window.innerHeight);
+-        });
+-    </script>
+-</body>
+-
+-</html>
+-
++<!doctype html><html lang="ko"><meta charset="utf-8"><title>PAC 손목 제어</title>
++<style>body{font:18px system-ui;max-width:760px;margin:40px auto;padding:20px}button{padding:12px;margin:8px}pre{background:#eee;padding:20px}canvas{border:1px solid #aaa}</style>
++<h1>PAC 손목 목표 모니터</h1><p>영상의 노란 영역에 손 하나를 놓고 활성화하세요. 위쪽 → +X, 오른쪽 → −Y.</p>
++<p>아래 표시는 명령 목표입니다. 실제 로봇 위치는 bridge 로그에서 확인합니다.</p>
++<button onclick="command('enable')">입력 수동 활성화</button><button onclick="command('stop')">입력 정지</button>
++<canvas id="plot" width="400" height="300"></canvas><pre id="state">연결 중</pre>
++<script>
++async function command(action){await fetch('/api/'+action,{method:'POST'});}
++async function refresh(){try{let r=await fetch('/api/state',{cache:'no-store'});let s=await r.json();document.getElementById('state').textContent=JSON.stringify(s,null,2);let w=s.workspace;let c=document.getElementById('plot').getContext('2d');c.clearRect(0,0,400,300);c.fillStyle=s.motion_enabled?'green':'red';c.beginPath();c.arc((w.y_m[1]-s.position_m[1])/(w.y_m[1]-w.y_m[0])*400,(w.x_m[1]-s.position_m[0])/(w.x_m[1]-w.x_m[0])*300,7,0,Math.PI*2);c.fill();}catch(e){document.getElementById('state').textContent='서버 연결 단절';}setTimeout(refresh,50);}refresh();
++</script></html>
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,7 +1,169 @@
+-## 🛠 Environment Setup
+-- **Python Version**: 3.10.x
+-- **Installation**:
+-  ```bash
+-  conda create -n hand_tracker python=3.10
+-  conda activate hand_tracker
+-  pip install -r requirements.txt
++# PAC 2026 손목 입력 및 기존 로봇 SDK 연결
++
++2026-10-09: 이 노트북의 기존 hack_qut.py와 tiltis/PAC 코드를 기준으로 구성했다.
++실제 로봇 모델과 연결은 아직 확인되지 않았다. 최신 포트 조회에는 Bluetooth COM3/COM4만
++표시됐으며 자동 포트를 선택하지 않는다. 이전에 표시된 COM7도 로봇으로 간주하지 않았다.
++
++## 노트북에서 실행
++
++PowerShell에서 이 폴더로 이동한다. 비전·모의 연결용 Python 3.10 가상환경을
++`C:/Users/tilti/.venvs/pac2026-vision310/`에 별도로 구성했다.
++기존 Anaconda 환경은 보존한다. Windows MediaPipe의 모델 경로 문제를 피하기 위해
++환경은 ASCII 경로에 둔다. 프로젝트 소스는 현재 한글 경로에 유지한다.
++
++```powershell
++$pacPython = Join-Path $env:USERPROFILE '.venvs/pac2026-vision310/Scripts/python.exe'
++& $pacPython check_laptop.py
++& $pacPython -m unittest discover -s tests -v
++& $pacPython replay.py
++& $pacPython hack_qut.py
++```
++
++브라우저에서 http://127.0.0.1:5001 을 연다. 다른 터미널에서 같은 Python으로
++`robot_bridge.py`를 실행하면 **모의 로봇만** 연결한다. 손 하나를 노란 영역에 놓고
++웹에서 입력을 활성화한 뒤 bridge 터미널에서 `arm`을 입력한다.
++`stop`은 bridge 정지, `quit`은 종료. 웹 정지도 bridge의 hold를 유발한다.
++양쪽 모두 정지 후 수동 활성화가 필요하다.
++
++새 PC에서 환경을 만들 때는 Python 3.10으로 아래를 실행한다.
++
++```powershell
++python -m venv "$env:USERPROFILE/.venvs/pac2026-vision310"
++$pacPython = Join-Path $env:USERPROFILE '.venvs/pac2026-vision310/Scripts/python.exe'
++& $pacPython -m pip install -r requirements.txt
++```
++
++동일한 의존성을 재현하려면 requirements.lock.txt를 사용한다.
++OpenCV 배포본 두 개가 같은 cv2 모듈을 덮어쓰지 않도록 MediaPipe가 요구하는
++opencv-contrib-python 하나만 설치하고, NumPy와 함께 버전을 고정했다.
++MediaPipe의 기존 solutions API를 사용하는 Python 3.10 서버다.
++
++## 좌표와 API
++
++- 입력 좌우 반전, landmark 0, 손 2개까지 검출하여 두 손이면 비활성화.
++- 정규화 영상 좌표 u,v 각각 0.1~0.9만 허용.
++- 위쪽 → +X, 오른쪽 → −Y. X 0.20~0.40m, Y −0.10~0.10m, Z 0.20m.
++- 목표의 유클리드 이동 속도 0.05m/s, 긴 주기는 최대 50ms로 제한.
++- 손 미검출, 작업영역 이탈, 200ms 초과 영상 지연은 latch 정지.
++- 지연은 cap.read() 시작부터의 소프트웨어 경과시간이다. 카메라 내부의
++  촬영/버퍼 지연은 장비 timestamp 없이 확인할 수 없어 현장 지연 검증이 추가로 필요하다.
++- GET /api/state: position_m, motion_enabled, frame_id, frame_age_s, units,
++  coordinate_frame, workspace. frame_age_s는 서버 monotonic 기반 경과시간이다.
++- POST /api/enable, POST /api/stop: 입력 수동 활성화/정지.
++- bridge는 영상 age에 HTTP 왕복시간을 보수적으로 더한다. 반복 frame ID는
++  신선도를 갱신하지 않는다. frame ID 감소는 서버 재시작으로 보고 정지한다.
++- Windows에서 같은 monotonic clock tick을 공유하는 입력은 이동 예산 0으로 처리한다.
++  capture timestamp가 역행하면 수동 재활성화가 필요한 정지 상태로 전환한다.
++
++## 작업 범위 설정
++
++기본 `workspace.virtual.json`은 가상 검증 전용이다. `workspace.py`가 서버와
++bridge에 같은 범위·Z·단위·속도 설정을 적용한다. API 설정이 다르면 전송하지 않는다.
++가상 범위로 실기 Backend를 생성하면 오류를 반환한다.
++
++현장에서는 `workspace.site.template.json`을 별도 파일로 복사해 실제 측정값을 넣는다.
++이 템플릿의 null 값과 unconfigured profile은 실행 시 거부된다. 현장 검증을 마친
++범위에만 `profile: commissioned`을 지정한다. profile 변경 자체가 안전 검증은 아니다.
++서버와 bridge 양쪽에 같은 파일을 `--workspace 파일.json`으로 전달한다.
++시작 EE가 해당 범위 및 고정 Z(허용 오차 1mm) 안에 있어야 활성화된다.
++임의로 초기 EE에서 작업 범위 중앙까지 이동시키지 않는다.
++
++이 방식은 화면 2D 조작 입력을 robot base의 XY 목표로 매핑한다. 카메라에서 측정한
++3D 물리 좌표를 로봇으로 변환하는 방식이 아니므로 외부 보정행렬을 추측해 넣지 않는다.
++실제 base 축 방향과 URDF의 미터 단위를 확인해야 한다. 다른 좌표계의 SDK라면
++그 사양을 확인한 뒤 명시적인 변환 어댑터를 추가한다.
++
++## 기존 제어 코드 재사용
++
++공동 저장소 로컬 위치는 ../PAC_team_source, 검토 commit은
++5aa74557f84c54d4b458f8b9643c5aa2982acfed 이다.
++
++so101_backend.py는 기존 SO101Follower.get_observation/send_action과
++RobotKinematics.forward_kinematics/inverse_kinematics를 호출한다.
++새 IK나 자체 SDK를 구현하지 않았다. SDK 의존성은 실기 환경에서만 로드한다.
++공동 저장소는 Python >=3.12를 요구하므로 Python 3.10 비전 환경과 HTTP로 분리한다.
++
++실기 Backend는 이미 연결된 robot 객체와 보정된 kinematics 객체를 받아 사용한다.
++이 단계에는 실제 로봇 실행 CLI가 없다. 현장 정보를 확인하고 검증한 뒤 추가한다.
++필요 정보는 모델(SO-100/101 등), USB 포트, robot id/보정 파일, SDK 버전,
++실제 URDF와 EE frame, base 축/단위, 현재 EE 위치, 관절 한계/속도, 충돌 환경이다.
++보정과 torque 활성화는 SDK connect 과정에서 발생할 수 있으므로 단순 포트 검출과 구분한다.
++SO-101 어댑터는 지원 후보이며 현장 모델이 SO-101로 확인된 것은 아니다.
++실제 구동 전에 비상정지·주변 장애물·저속 범위를 확인하고 사용자 승인을 받아야 한다.
++
++팔 5관절은 degree, gripper는 0~100이다. IK에는 gripper를 제외한 5관절만 넣고,
++활성화 시 관측한 EE 회전과 그리퍼 명령을 유지한다. SO-101은 5 DOF여서
++일정 자세의 XY 이동이 불가능한 경우가 있다. FK 위치/자세 잔차로 거부한다.
++실기 초기 EE는 workspace 및 고정 Z에 있어야 arm 가능하다. 자동 이동하지 않는다.
++예시 workspace는 도달 가능성을 검증한 값이 아니다.
++
++So101Backend는 현장 joint limits, joint velocity limits와 path_validator를 요구한다.
++path_validator는 관측 상태, 후보 action, dt를 받아 전체 경로 충돌과
++EE 추종/속도를 검증해야 한다. 단순 True 콜백은 실기 검증이 아니다.
++콜백은 제공된 상태와 경로를 검사하며 직접 SDK 명령을 전송하지 않아야 한다.
++max_relative_target은 관절 목표 차이 제한이며 Cartesian 속도를 보장하지 않는다.
++실기 어댑터는 SDK의 max_relative_target clipping을 거부한다. 이미 검사한 관절 경로가
++SDK에서 다른 목표로 변경되지 않도록 bridge의 관절 step 검사로 제한한다.
++SDK 반환 명령이 요청과 다르면 오류를 내고 hold한다. 이 검사는 전송 이후이며
++이미 전송된 명령을 취소했다는 의미는 아니다.
++
++## 정지와 로그의 한계
++
++독립 watchdog이 입력 단절을 감지해 latch 정지한다. IK 또는 충돌 검사 중 watchdog이
++발생하면 그 결과는 전송하지 않는다. SDK 관측·전송·hold는 lock으로 직렬화한다.
++SDK 호출 자체가 멈추면 watchdog도 lock을 기다리므로 200ms 물리 정지는 보장하지 않는다.
++현장에서는 SDK 통신 timeout/하드웨어 정지 수단과 실제 정지 지연을 검증해야 한다.
++정상 통신 시 현재 관절을 읽어 그 위치로 send_action하는 소프트웨어 hold를 사용한다.
++통신 단절로 hold 실패하면 hold_failed를 기록한다. disconnect의 torque off와 구분한다.
++
++logs/bridge.jsonl에는 관측 관절/FK EE, 요청/제한된 EE 목표, IK action,
++SDK 반환 action, 관측·전송 시작/끝의 로컬 monotonic 시간과 wall_time_ns를 기록한다.
++이는 순차 관측/명령 기록이며 동시 측정 데이터가 아니다. 실제 적용 action은 SDK
++반환값으로 구분하되 실제 도달 상태는 다음 관측에서 확인해야 한다.
++FK EE는 관절 기반 계산값이다. 학습용 영상은 아직 기록하지 않는다.
++mock=true 및 synthetic=true 데이터는 실측/학습 데이터로 취급하지 않는다.
++관측과 명령의 시각을 한 호스트에서 기록하지만 실측 데이터 수집/동기화 정확도는
++아직 검증하지 않았다. 학습 데이터 구축 시 카메라 frame과 후속 관측의 timestamp,
++통신 지연, observation/action 이름 및 episode 경계를 추가 검증해야 한다.
++
++## 이 노트북 검증 결과 (2026-10-09)
++
++- 별도 Python 3.10.19 환경에서 자동 테스트 **48개 통과**.
++  좌표/속도, API, watchdog, 느린 IK/충돌 검사 결과 취소,
++  중복/오래된 프레임, 재활성화, hold 실패, SDK 단위/IK 잔차/자세/충돌 검증 차단,
++  가상 범위의 실기 사용 차단, Windows clock tick, 실제 TCP HTTP 모의 연결을 검증했다.
++- 120프레임 모의 재생에서 120명령, 손 미검출 후 hold 1회 및 수동 재활성화 확인.
++- MediaPipe 0.10.21 / OpenCV 4.11.0로 웹캠 640×480의 30프레임 처리 성공.
++  마지막 측정에서 30프레임 모두 손이 검출됐다. 장시간 추적 정확도 검증은 아니다.
++  처리 시간 중앙값 78ms, 첫 프레임 844ms, 200ms 초과 프레임 1개(시작 프레임).
++  초기 지연 프레임은 제어에서 비활성화되며 신선한 입력 이후 수동 활성화가 필요하다.
++- 실제 hack_qut.py를 짧게 실행해 최신 영상 frame ID/age, GET /api/state,
++  웹 모니터 HTTP 200과 기본 motion_enabled=false를 확인한 뒤 종료했다.
++  모니터 HTML의 첫 요청은 약 984ms였다. 이는 bridge API timeout을 늘리지 않고
++  별도의 정적 페이지 검사 timeout으로 처리했다.
++- pip check 통과. 설치 버전은 requirements.lock.txt에 기록했다.
++- pyserial 3.5 설치. check_laptop.py는 포트 목록만 읽으며 연결하지 않는다.
++- 손 추적 장시간 실행, 실제 FK/IK URDF, MuJoCo, 로봇 통신·동작·충돌·속도는 미검증.
++- LeRobot/placo는 아직 미설치. 로봇 모델 확인 후 Python 3.12 환경을 구성해야 한다.
++
++검증 기록: logs/camera_check.json, logs/server_check.json, logs/replay.jsonl.
++카메라 재검증은 `& $pacPython verify_camera.py --frames 30`, 실제 서버 재검증은
++`& $pacPython verify_server.py`로 실행한다. 후자는 포트 5001이 비어 있을 때만 시작하고
++자기가 생성한 프로세스만 종료한다. 실제 로봇 backend나 입력 활성화는 사용하지 않는다.
++
++처음 프로젝트 내부 한글 경로에 만든 `.venv/`에서는 모델 파일이 존재하는데도
++MediaPipe graph 로딩이 실패했다. 같은 버전의 ASCII 경로 환경에서는 성공했다.
++실행 스크립트는 ASCII 환경을 사용한다. 임시 `.venv` 삭제는 도구 정책으로 차단되어
++남아 있지만 실행·패치·Git 추적 대상에서 제외했다.
++
++간편 실행: 첫 PowerShell에서 `./start_tracker.ps1`, 두 번째에서
++`./start_mock_bridge.ps1`. 실행 정책으로 차단되면 위의 Python 직접 실행을 사용한다.
++
++## 원본과 변경 이력
++
++로컬 `pac_minimal/`은 이 대화에서 기존 hack_qut.py와 GitHub를 바탕으로 작성한 버전이다.
++과거 클라우드 ZIP 자체와 `PAC_2026_existing_code.patch`는 현재 폴더에 없다.
++클라우드의 /workspace/scratch 경로는 사용하지 않았다. 기존 ZIP 패치는 적용하지 않았다.
++다른 PAC 검사 시스템의 station/sensor 코드는 변경하지 않았다.
++원본 비교용 `PAC_2026_local_changes.patch`가 제공되면 이는 현재 로컬 버전의
++검토용 차이이며 과거 ZIP에서 받은 패치가 아니다. 이 폴더에 다시 적용하지 않는다.
+diff --git a/replay.py b/replay.py
+new file mode 100644
+--- /dev/null
++++ b/replay.py
+@@ -0,0 +1,38 @@
++"""120 synthetic frames, a missing hand, and recovery requiring manual rearm."""
++import json
++from pathlib import Path
++from control import Controller
++from robot_bridge import Bridge, MockBackend
++
++
++def main():
++    now = [1.]
++    clock = lambda: now[0]
++    controller = Controller(clock)
++    backend = MockBackend()
++    path = Path('logs/replay.jsonl')
++    path.parent.mkdir(exist_ok=True)
++    with path.open('w',encoding='utf-8') as log:
++        bridge = Bridge(backend,log,clock)
++        controller.update((.5,.5),1,now[0])
++        assert controller.enable()
++        assert bridge.receive(controller.state(),now[0])
++        assert bridge.arm()
++        for i in range(120):
++            now[0] += 1/30
++            controller.update((.5+.2*i/120,.5-.2*i/120),1,now[0])
++            assert bridge.receive(controller.state(),now[0])
++            assert bridge.step()
++        controller.update(None,0,now[0])
++        assert not bridge.receive(controller.state(),now[0])
++        assert backend.holds == 1
++        now[0] += 1/30
++        controller.update((.5,.5),1,now[0])
++        assert not controller.state()['motion_enabled']
++        assert not bridge.enabled
++    print(json.dumps(dict(frames=120,commands=len(backend.actions),holds=backend.holds,
++                         manual_rearm_required=True,log=str(path),synthetic=True)))
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/requirements.lock.txt b/requirements.lock.txt
+new file mode 100644
+--- /dev/null
++++ b/requirements.lock.txt
+@@ -0,0 +1,34 @@
++absl-py==2.5.0
++attrs==26.1.0
++blinker==1.9.0
++cffi==2.1.1
++click==8.5.0
++contourpy==1.3.2
++cycler==0.12.1
++Flask==3.1.3
++flatbuffers==25.12.19
++fonttools==4.65.0
++itsdangerous==2.2.0
++jax==0.6.2
++jaxlib==0.6.2
++Jinja2==3.1.6
++kiwisolver==1.5.1
++MarkupSafe==3.0.4
++matplotlib==3.10.9
++mediapipe==0.10.21
++ml_dtypes==0.5.4
++numpy==1.26.4
++opencv-contrib-python==4.11.0.86
++opt_einsum==3.4.0
++packaging==26.3
++pillow==12.3.0
++protobuf==4.25.9
++pycparser==3.1
++pyparsing==3.3.3
++pyserial==3.5
++python-dateutil==2.9.0.post0
++scipy==1.15.3
++sentencepiece==0.2.2
++six==1.17.0
++sounddevice==0.5.6
++Werkzeug==3.1.9
+diff --git a/requirements.txt b/requirements.txt
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,7 +1,5 @@
+-opencv-python>=4.8.0
+-mediapipe>=0.10.0
+-numpy>=1.24.0
+-scipy>=1.10.0
+-flask>=2.3.0
+-flask-socketio>=5.3.0
+-eventlet>=0.33.0
+\ No newline at end of file
++opencv-contrib-python==4.11.0.86
++mediapipe==0.10.21
++Flask>=3,<4
++numpy==1.26.4
++pyserial==3.5
+diff --git a/robot_bridge.py b/robot_bridge.py
+new file mode 100644
+--- /dev/null
++++ b/robot_bridge.py
+@@ -0,0 +1,260 @@
++"""Cartesian bridge with a latched watchdog. SDK access is serialized.
++
++Backend contract: observe(), solve(position, reference, observation), validate(),
++send(), hold(). Real hardware is intentionally only available after commissioning.
++"""
++import argparse
++import json
++import math
++import threading
++import time
++import urllib.request
++from pathlib import Path
++from workspace import Workspace
++
++
++class MockBackend:
++    """Synthetic state for software tests; no physical kinematics or collision model."""
++    is_mock = True
++
++    def __init__(self, workspace=None):
++        self.position = (workspace or Workspace()).center()
++        self.actions = []
++        self.holds = 0
++
++    def observe(self):
++        return dict(joints=dict(zip(('mock_x_m', 'mock_y_m', 'mock_z_m'), self.position)),
++                    ee_position_m=list(self.position), ee_rotation=[1,0,0,0,1,0,0,0,1], synthetic=True)
++
++    def solve(self, position, reference, observation):
++        return {'position_m': list(position)}
++
++    def validate(self, action, position, reference, observation, dt):
++        return True
++
++    def send(self, action):
++        self.position = list(action['position_m'])
++        self.actions.append(action)
++        return action
++
++    def hold(self):
++        self.holds += 1
++        return dict(position_m=list(self.position))
++
++
++class Bridge:
++    def __init__(self, backend, log=None, clock=time.monotonic, workspace=None):
++        self.backend, self.log, self.clock = backend, log, clock
++        self.workspace = workspace or Workspace()
++        if not backend.is_mock and self.workspace.profile != 'commissioned':
++            raise ValueError('Hardware backend requires an explicitly commissioned workspace')
++        self.lock = threading.RLock()
++        self.enabled = False
++        self.reason = 'manual_arm_required'
++        self.generation = 0
++        self.fresh_at = None
++        self.last_frame = None
++        self.last_step = None
++        self.reference = None
++        self.commanded = None
++        self.last_state = None
++
++    def record(self, **fields):
++        if self.log:
++            self.log.write(json.dumps(dict(local_monotonic_s=self.clock(),
++                wall_time_ns=time.time_ns(), mock=self.backend.is_mock, **fields), allow_nan=False)+'\n')
++            self.log.flush()
++
++    def stop(self, reason):
++        with self.lock:
++            was_enabled = self.enabled
++            self.enabled = False
++            self.generation += 1
++            self.reason = reason
++            if was_enabled:
++                try:
++                    start = self.clock()
++                    held = self.backend.hold()
++                    self.record(event='hold', reason=reason, action_sent=held,
++                                send_started_s=start, send_finished_s=self.clock())
++                except Exception as exc:
++                    self.reason = 'hold_failed'
++                    self.record(event='hold_failed', reason=reason, error=str(exc),
++                                action_sent=getattr(exc,'action_sent',None))
++
++    def watchdog(self):
++        with self.lock:
++            if self.enabled and (self.fresh_at is None or self.clock()-self.fresh_at > .2):
++                self.stop('receiver_timeout')
++
++    def receive(self, state, request_started):
++        with self.lock:
++            now = self.clock()
++            try:
++                age = state['frame_age_s']
++                frame = state['frame_id']
++                p = state['position_m']
++                if state['motion_enabled'] is not True:
++                    raise ValueError('input_disabled')
++                if state.get('coordinate_frame') != 'robot_base' or state.get('units') != 'm':
++                    raise ValueError('coordinate_contract')
++                if state.get('workspace') != self.workspace.metadata():
++                    raise ValueError('workspace_contract')
++                if type(frame) is not int or frame < 0:
++                    raise ValueError('invalid_frame_id')
++                rtt = now-request_started
++                if not math.isfinite(rtt) or not 0 <= rtt <= .2 or type(age) not in (int, float) or not math.isfinite(age) or not 0 <= age + rtt <= .2:
++                    raise ValueError('stale_source')
++                if not isinstance(p, list) or len(p) != 3 or any(type(x) not in (int,float) or not math.isfinite(x) for x in p):
++                    raise ValueError('invalid_position')
++                if not self.workspace.contains(p):
++                    raise ValueError('workspace')
++                if self.last_frame is not None and frame < self.last_frame:
++                    self.last_frame = None
++                    raise ValueError('source_restarted')
++                if frame != self.last_frame:
++                    self.fresh_at = now - age - (now-request_started)
++                    self.last_frame = frame
++                self.last_state = dict(state, position_m=list(p))
++                self.watchdog()
++                return True
++            except (ValueError, KeyError, TypeError) as exc:
++                self.last_state = None
++                self.fresh_at = None
++                self.stop(str(exc))
++                return False
++
++    def arm(self):
++        with self.lock:
++            if self.enabled:
++                return False
++            if self.last_state is None or self.fresh_at is None or self.clock()-self.fresh_at > .2:
++                return False
++            obs = self.backend.observe()
++            p = obs['ee_position_m']
++            if not self.workspace.contains(p, z_tolerance=.001):
++                self.reason = 'initial_ee_outside_workspace_or_fixed_z'
++                return False
++            if self.clock()-self.fresh_at > .2:
++                self.reason = 'stale_during_arm'
++                return False
++            self.reference = obs
++            self.commanded = list(p)
++            self.last_step = self.clock()
++            self.enabled = True
++            self.generation += 1
++            self.reason = 'armed'
++            self.record(event='arm', observation=obs, workspace=self.workspace.metadata())
++            return True
++
++    def step(self):
++        with self.lock:
++            self.watchdog()
++            if not self.enabled or self.last_state is None:
++                return False
++            generation = self.generation
++            observed_at = self.clock()
++            try:
++                obs = self.backend.observe()
++            except Exception as exc:
++                self.stop('observation_failed')
++                self.record(event='observation_failed', error=str(exc))
++                return False
++            observed_end = self.clock()
++            dt = min(.05, max(0., observed_end-self.last_step))
++            target = self.last_state['position_m']
++            delta = [b-a for a,b in zip(self.commanded, target)]
++            dist = math.sqrt(sum(x*x for x in delta))
++            ratio = min(1., self.workspace.target_speed_m_s*dt/dist) if dist else 0.
++            limited = [a+ratio*d for a,d in zip(self.commanded, delta)]
++            reference = self.reference
++            frame_id = self.last_frame
++        # IK and path checking may be slow: neither holds the SDK/control lock.
++        try:
++            action = self.backend.solve(limited, reference, obs)
++            valid = self.backend.validate(action, limited, reference, obs, dt)
++            with self.lock:
++                self.watchdog()
++                if not self.enabled or generation != self.generation:
++                    return False
++                if self.clock()-observed_at > .2:
++                    self.stop('stale_robot_observation')
++                    return False
++                if not valid:
++                    self.stop('motion_validation_failed')
++                    return False
++                sent_at = self.clock()
++                sent = self.backend.send(action)
++                sent_end = self.clock()
++                self.commanded = limited
++                self.last_step = sent_end
++                self.record(event='command', source_frame_id=frame_id,
++                    observation=obs, observation_started_s=observed_at,
++                    observation_finished_s=observed_end, requested_position_m=target,
++                    limited_position_m=limited, action_requested=action,
++                    action_sent=sent, send_started_s=sent_at, send_finished_s=sent_end)
++                self.watchdog()
++                return self.enabled
++        except Exception as exc:
++            self.stop('backend_error')
++            with self.lock:
++                self.record(event='backend_error', error=str(exc),
++                            action_sent=getattr(exc,'action_sent',None))
++            return False
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--url', default='http://127.0.0.1:5001/api/state')
++    parser.add_argument('--log', default='logs/bridge.jsonl')
++    parser.add_argument('--workspace', default=str(Path(__file__).with_name('workspace.virtual.json')))
++    args = parser.parse_args()
++    path = Path(args.log)
++    path.parent.mkdir(parents=True, exist_ok=True)
++    quitting = threading.Event()
++    with path.open('a', encoding='utf-8') as log:
++        workspace = Workspace.load(args.workspace)
++        bridge = Bridge(MockBackend(workspace), log, workspace=workspace)
++        def watch():
++            while not quitting.wait(.01):
++                bridge.watchdog()
++        def console():
++            while not quitting.is_set():
++                try:
++                    command = input('bridge: arm / stop / quit > ').strip().lower()
++                    if command == 'arm':
++                        try:
++                            print('armed' if bridge.arm() else 'arm rejected: '+bridge.reason)
++                        except Exception as exc:
++                            bridge.stop('arm_observation_failed')
++                            print('arm failed: '+str(exc))
++                    elif command == 'stop':
++                        bridge.stop('manual_stop')
++                    elif command == 'quit':
++                        bridge.stop('quit')
++                        quitting.set()
++                except EOFError:
++                    return
++        threading.Thread(target=watch, daemon=True).start()
++        threading.Thread(target=console, daemon=True).start()
++        print('MOCK ONLY: synthetic robot state; no serial port is opened.')
++        try:
++            while not quitting.is_set():
++                start = time.monotonic()
++                try:
++                    with urllib.request.urlopen(args.url, timeout=.08) as response:
++                        state = json.load(response)
++                    if bridge.receive(state, start):
++                        bridge.step()
++                except Exception:
++                    bridge.stop('receive_failure')
++                quitting.wait(max(0., 1/30-(time.monotonic()-start)))
++        except KeyboardInterrupt:
++            pass
++        finally:
++            bridge.stop('shutdown')
++            quitting.set()
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/so101_backend.py b/so101_backend.py
+new file mode 100644
+--- /dev/null
++++ b/so101_backend.py
+@@ -0,0 +1,120 @@
++"""Reuse team LeRobot FK/IK and SO101 SDK; no hardware CLI before commissioning.
++
++Requires Python 3.12+, the reviewed PAC source, matching URDF/calibration,
++and a site-specific collision/path validator. Does not connect on import.
++"""
++import math
++import threading
++
++ARM_JOINTS = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll']
++
++
++class ActionMismatchError(ValueError):
++    def __init__(self, action_sent):
++        super().__init__('SDK returned an altered action; hold required')
++        self.action_sent = action_sent
++
++
++class So101Backend:
++    is_mock = False
++
++    def __init__(self, robot, kinematics, joint_limits_deg, velocity_limits_deg_s,
++                 path_validator, position_tolerance_m=.002, orientation_tolerance_rad=.02):
++        if not callable(path_validator):
++            raise ValueError('Commissioned collision/path validator required')
++        if kinematics.joint_names != ARM_JOINTS:
++            raise ValueError('URDF joint order must match the five arm joints; exclude gripper')
++        if not robot.config.use_degrees:
++            raise ValueError('Arm degree units required')
++        if getattr(robot.config, 'max_relative_target', None) is not None:
++            raise ValueError('SDK clipping would alter the validated joint path; use bridge joint-step limits')
++        for name in ARM_JOINTS:
++            low, high = joint_limits_deg[name]
++            speed = velocity_limits_deg_s[name]
++            if not all(math.isfinite(x) for x in (low, high, speed)) or low >= high or speed <= 0:
++                raise ValueError('Invalid commissioned joint limits')
++        if not 0 < position_tolerance_m <= .005 or not 0 < orientation_tolerance_rad <= .1:
++            raise ValueError('Invalid FK residual tolerances')
++        self.robot, self.kinematics = robot, kinematics
++        self.kinematics_lock = threading.RLock()
++        self.limits, self.speeds = joint_limits_deg, velocity_limits_deg_s
++        self.path_validator = path_validator
++        self.position_tolerance = position_tolerance_m
++        self.orientation_tolerance = orientation_tolerance_rad
++
++    @staticmethod
++    def valid_pose(pose):
++        import numpy as np
++        return (pose.shape == (4,4) and np.isfinite(pose).all() and
++                np.allclose(pose[3], [0,0,0,1], atol=1e-6) and
++                np.allclose(pose[:3,:3].T @ pose[:3,:3], np.eye(3), atol=1e-6) and
++                abs(np.linalg.det(pose[:3,:3])-1.) < 1e-6)
++
++    def observe(self):
++        import numpy as np
++        raw = self.robot.get_observation()
++        joints = {name+'.pos': float(raw[name+'.pos']) for name in ARM_JOINTS+['gripper']}
++        if not all(math.isfinite(x) for x in joints.values()) or not 0 <= joints['gripper.pos'] <= 100:
++            raise ValueError('Invalid robot observation')
++        with self.kinematics_lock:
++            pose = np.array(self.kinematics.forward_kinematics(np.array([joints[n+'.pos'] for n in ARM_JOINTS])), copy=True)
++        if not self.valid_pose(pose):
++            raise ValueError('Invalid forward kinematics')
++        return dict(joints=joints, ee_position_m=pose[:3,3].tolist(),
++                    ee_rotation=pose[:3,:3].reshape(-1).tolist(), synthetic=False,
++                    joint_units={'arm':'deg','gripper':'normalized_0_100'},
++                    ee_state_source='joint_encoder_forward_kinematics')
++
++    def solve(self, position, reference, observation):
++        import numpy as np
++        desired = np.eye(4)
++        desired[:3,3] = position
++        desired[:3,:3] = np.array(reference['ee_rotation']).reshape(3,3)
++        if not self.valid_pose(desired):
++            raise ValueError('Invalid reference pose')
++        with self.kinematics_lock:
++            q = np.asarray(self.kinematics.inverse_kinematics(
++                np.array([observation['joints'][n+'.pos'] for n in ARM_JOINTS]), desired,
++                orientation_weight=1.))
++        if q.shape != (5,) or not np.isfinite(q).all():
++            raise ValueError('IK must return five finite arm joint values in degrees')
++        action = {n+'.pos': float(v) for n,v in zip(ARM_JOINTS,q)}
++        action['gripper.pos'] = reference['joints']['gripper.pos']
++        return action
++
++    def validate(self, action, position, reference, observation, dt):
++        import numpy as np
++        if not math.isfinite(dt) or dt <= 0 or set(action) != {n+'.pos' for n in ARM_JOINTS+['gripper']} or not all(math.isfinite(v) for v in action.values()):
++            return False
++        for name in ARM_JOINTS:
++            q = action[name+'.pos']
++            low, high = self.limits[name]
++            if not low <= q <= high or abs(q-observation['joints'][name+'.pos']) > self.speeds[name]*dt:
++                return False
++        if action['gripper.pos'] != reference['joints']['gripper.pos']:
++            return False
++        with self.kinematics_lock:
++            pose = np.array(self.kinematics.forward_kinematics(np.array([action[n+'.pos'] for n in ARM_JOINTS])),copy=True)
++        if not self.valid_pose(pose):
++            return False
++        if np.linalg.norm(pose[:3,3]-position) > self.position_tolerance:
++            return False
++        rotation_error = np.array(reference['ee_rotation']).reshape(3,3).T @ pose[:3,:3]
++        angle = math.acos(float(np.clip((np.trace(rotation_error)-1)/2, -1, 1)))
++        if angle > self.orientation_tolerance:
++            return False
++        # Check entire interpolated path, fixtures, and measured EE tracking/speed.
++        return self.path_validator(observation, action, dt) is True
++
++    def send(self, action):
++        sent = self.robot.send_action(action)
++        if set(sent) != set(action) or any(not math.isfinite(sent[k]) or abs(sent[k]-action[k]) > 1e-6 for k in action):
++            raise ActionMismatchError(sent)
++        return sent
++
++    def hold(self):
++        raw = self.robot.get_observation()
++        action = {n+'.pos': float(raw[n+'.pos']) for n in ARM_JOINTS+['gripper']}
++        if not all(math.isfinite(v) for v in action.values()) or not 0 <= action['gripper.pos'] <= 100:
++            raise ValueError('Cannot hold invalid observation')
++        return self.send(action)
+diff --git a/start_mock_bridge.ps1 b/start_mock_bridge.ps1
+new file mode 100644
+--- /dev/null
++++ b/start_mock_bridge.ps1
+@@ -0,0 +1,5 @@
++$ErrorActionPreference = 'Stop'
++Set-Location -LiteralPath $PSScriptRoot
++$pacPython = Join-Path $env:USERPROFILE '.venvs/pac2026-vision310/Scripts/python.exe'
++if (-not (Test-Path -LiteralPath $pacPython)) { throw 'ASCII 경로의 별도 Python 3.10 환경을 먼저 생성하고 requirements.txt를 설치하세요.' }
++& $pacPython robot_bridge.py
+diff --git a/start_tracker.ps1 b/start_tracker.ps1
+new file mode 100644
+--- /dev/null
++++ b/start_tracker.ps1
+@@ -0,0 +1,6 @@
++$ErrorActionPreference = 'Stop'
++Set-Location -LiteralPath $PSScriptRoot
++$pacPython = Join-Path $env:USERPROFILE '.venvs/pac2026-vision310/Scripts/python.exe'
++if (-not (Test-Path -LiteralPath $pacPython)) { throw 'ASCII 경로의 별도 Python 3.10 환경을 먼저 생성하고 requirements.txt를 설치하세요.' }
++Write-Host '브라우저: http://127.0.0.1:5001 / 로봇 연결 없이 손목 입력만 실행'
++& $pacPython hack_qut.py
+diff --git a/tests/test_api.py b/tests/test_api.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_api.py
+@@ -0,0 +1,28 @@
++import unittest
++import hack_qut
++from control import Controller
++
++
++class ApiTests(unittest.TestCase):
++    def setUp(self):
++        self.original = hack_qut.controller
++        hack_qut.controller = Controller()
++        self.client = hack_qut.app.test_client()
++    def tearDown(self):
++        hack_qut.controller = self.original
++    def test_default_disabled_and_contract(self):
++        state = self.client.get('/api/state').get_json()
++        self.assertFalse(state['motion_enabled'])
++        self.assertEqual(state['units'],'m')
++        self.assertEqual(state['coordinate_frame'],'robot_base')
++    def test_monitor_page_served(self):
++        response = self.client.get('/')
++        self.assertEqual(response.status_code,200)
++        self.assertIn(b'canvas',response.get_data())
++        response.close()
++    def test_enable_requires_fresh_hand_then_stop(self):
++        self.assertFalse(self.client.post('/api/enable').get_json()['ok'])
++        c = hack_qut.controller
++        c.update((.5,.5),1,c.clock())
++        self.assertTrue(self.client.post('/api/enable').get_json()['ok'])
++        self.assertFalse(self.client.post('/api/stop').get_json()['motion_enabled'])
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_bridge.py
+@@ -0,0 +1,157 @@
++import io
++import json
++import math
++import threading
++import unittest
++from robot_bridge import Bridge, MockBackend
++from workspace import Workspace
++
++
++class BridgeTests(unittest.TestCase):
++    def setUp(self):
++        self.now = 10.
++        self.backend = MockBackend()
++        self.log = io.StringIO()
++        self.b = Bridge(self.backend,self.log,lambda:self.now)
++        self.state = dict(position_m=[.4,-.1,.2], motion_enabled=True,
++                          frame_age_s=0.,frame_id=1,coordinate_frame='robot_base',units='m',
++                          workspace=Workspace().metadata())
++        self.assertTrue(self.b.receive(self.state,self.now))
++        self.assertTrue(self.b.arm())
++
++    def test_command_rate_and_log(self):
++        self.now += .04
++        self.assertTrue(self.b.step())
++        self.assertLessEqual(math.dist(self.backend.position,[.3,0,.2]),.002+1e-12)
++        row = json.loads(self.log.getvalue().splitlines()[-1])
++        self.assertIn('observation',row)
++        self.assertIn('action_sent',row)
++        self.assertTrue(row['mock'])
++
++    def test_false_holds_and_latches(self):
++        self.assertFalse(self.b.receive(dict(self.state,motion_enabled=False),self.now))
++        self.assertEqual(self.backend.holds,1)
++        self.b.receive(dict(self.state,frame_id=2),self.now)
++        self.assertFalse(self.b.step())
++        self.assertTrue(self.b.arm())
++
++    def test_watchdog_without_http(self):
++        self.now += .201
++        self.b.watchdog()
++        self.assertFalse(self.b.enabled)
++        self.assertEqual(self.backend.holds,1)
++
++    def test_duplicate_responses_do_not_refresh(self):
++        self.now += .15
++        self.b.receive(self.state,self.now)
++        self.now += .06
++        self.b.receive(self.state,self.now)
++        self.assertFalse(self.b.enabled)
++
++    def test_http_roundtrip_added_to_source_age(self):
++        self.now += .21
++        self.assertFalse(self.b.receive(dict(self.state,frame_id=2),self.now-.21))
++
++    def test_nonfinite_and_workspace(self):
++        for p in ([float('nan'),0,.2],[.5,0,.2],[.3,0,.3]):
++            self.assertFalse(self.b.receive(dict(self.state,position_m=p),self.now))
++        self.assertEqual(self.backend.actions,[])
++
++    def test_validation_failure(self):
++        self.backend.validate = lambda *args: False
++        self.now += .03
++        self.assertFalse(self.b.step())
++        self.assertEqual(self.backend.actions,[])
++        self.assertEqual(self.backend.holds,1)
++
++    def test_watchdog_during_ik_discards_result(self):
++        entered, release = threading.Event(), threading.Event()
++        def solve(position, reference, observation):
++            entered.set()
++            if not release.wait(2):
++                raise RuntimeError('test timeout')
++            return dict(position_m=position)
++        self.backend.solve = solve
++        self.now += .03
++        worker = threading.Thread(target=self.b.step)
++        worker.start()
++        self.assertTrue(entered.wait(2))
++        try:
++            self.now += .201
++            self.b.watchdog()
++        finally:
++            release.set()
++            worker.join(2)
++        self.assertFalse(worker.is_alive())
++        self.assertEqual(self.backend.actions,[])
++        self.assertEqual(self.backend.holds,1)
++
++    def test_source_restart_requires_rearm(self):
++        self.assertFalse(self.b.receive(dict(self.state,frame_id=0),self.now))
++        self.assertFalse(self.b.enabled)
++
++    def test_hold_failure_is_reported(self):
++        def fail():
++            raise RuntimeError('bus disconnected')
++        self.backend.hold = fail
++        self.b.stop('receive_failure')
++        self.assertEqual(self.b.reason,'hold_failed')
++        self.assertIn('hold_failed',self.log.getvalue())
++
++    def test_robot_observation_failure_stops_inside_bridge(self):
++        def fail():
++            raise RuntimeError('encoder read failed')
++        self.backend.observe = fail
++        self.now += .03
++        self.assertFalse(self.b.step())
++        self.assertFalse(self.b.enabled)
++        self.assertEqual(self.backend.holds,1)
++
++    def test_slow_initial_observation_cannot_arm(self):
++        self.b.stop('manual_stop')
++        original = self.backend.observe
++        def slow():
++            self.now += .21
++            return original()
++        self.backend.observe = slow
++        self.assertFalse(self.b.arm())
++        self.assertFalse(self.b.enabled)
++
++    def test_input_units_and_workspace_mismatch_hold(self):
++        self.assertFalse(self.b.receive(dict(self.state,units='mm'),self.now))
++        self.assertEqual(self.backend.holds,1)
++        self.assertFalse(self.b.receive(dict(self.state,workspace={}),self.now))
++
++    def test_hardware_refuses_virtual_workspace(self):
++        self.backend.is_mock = False
++        with self.assertRaisesRegex(ValueError,'commissioned'):
++            Bridge(self.backend)
++
++    def test_arm_does_not_reset_reference_while_active(self):
++        reference = self.b.reference
++        self.assertFalse(self.b.arm())
++        self.assertIs(self.b.reference,reference)
++
++    def test_watchdog_during_slow_collision_check_discards_action(self):
++        entered,release = threading.Event(),threading.Event()
++        def validate(*args):
++            entered.set()
++            return release.wait(2)
++        self.backend.validate = validate
++        self.now += .03
++        worker = threading.Thread(target=self.b.step)
++        worker.start()
++        self.assertTrue(entered.wait(2))
++        try:
++            self.now += .201
++            self.b.watchdog()
++        finally:
++            release.set()
++            worker.join(2)
++        self.assertFalse(worker.is_alive())
++        self.assertEqual(self.backend.actions,[])
++        self.assertEqual(self.backend.holds,1)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/test_control.py b/tests/test_control.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_control.py
+@@ -0,0 +1,67 @@
++import math
++import unittest
++from control import Controller
++
++
++class ControlTests(unittest.TestCase):
++    def setUp(self):
++        self.now = 1.
++        self.c = Controller(lambda: self.now)
++        self.c.update((.5,.5),1,self.now)
++        self.assertTrue(self.c.enable())
++
++    def test_mapping_and_speed(self):
++        self.now += .04
++        self.c.update((.9,.1),1,self.now)
++        p = self.c.state()['position_m']
++        self.assertGreater(p[0],.3)
++        self.assertLess(p[1],0)
++        self.assertEqual(p[2],.2)
++        self.assertLessEqual(math.dist(p,[.3,0,.2]),.05*.04+1e-12)
++
++    def test_two_hands_latch(self):
++        self.c.update((.5,.5),2,self.now)
++        self.now += .03
++        self.c.update((.5,.5),1,self.now)
++        self.assertFalse(self.c.state()['motion_enabled'])
++        self.assertTrue(self.c.enable())
++
++    def test_missing(self):
++        self.c.update(None,0,self.now)
++        self.assertFalse(self.c.enable())
++
++    def test_area(self):
++        self.c.update((.99,.5),1,self.now)
++        self.assertFalse(self.c.state()['motion_enabled'])
++
++    def test_stale_without_camera_updates(self):
++        self.now += .201
++        self.assertFalse(self.c.state()['motion_enabled'])
++        self.c.update((.5,.5),1,self.now)
++        self.assertFalse(self.c.state()['motion_enabled'])
++
++    def test_processing_delay(self):
++        self.c.update((.5,.5),1,self.now-.3)
++        self.assertFalse(self.c.state()['motion_enabled'])
++
++    def test_nonfinite(self):
++        self.c.update((float('nan'),.5),1,self.now)
++        self.assertFalse(self.c.state()['motion_enabled'])
++
++    def test_clock_regression_requires_manual_reactivation(self):
++        self.c.update((.5,.5),1,self.now-.01)
++        self.assertFalse(self.c.state()['motion_enabled'])
++        self.now += .03
++        self.c.update((.5,.5),1,self.now)
++        self.assertFalse(self.c.state()['motion_enabled'])
++        self.assertTrue(self.c.enable())
++
++    def test_equal_windows_clock_tick_has_zero_motion_budget(self):
++        previous = list(self.c.position)
++        self.c.update((.9,.1),1,self.now)
++        self.assertTrue(self.c.state()['motion_enabled'])
++        self.assertEqual(self.c.position,previous)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/test_http_integration.py b/tests/test_http_integration.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_http_integration.py
+@@ -0,0 +1,79 @@
++"""A real local TCP API, synthetic wrist input, and the existing bridge/backend."""
++import io
++import json
++import threading
++import time
++import unittest
++import urllib.request
++from werkzeug.serving import make_server, WSGIRequestHandler
++import hack_qut
++from control import Controller
++from robot_bridge import Bridge, MockBackend
++
++
++class QuietHandler(WSGIRequestHandler):
++    def log_request(self, *args, **kwargs):
++        pass
++
++
++class HttpIntegrationTests(unittest.TestCase):
++    def setUp(self):
++        self.previous = hack_qut.controller
++        self.controller = hack_qut.controller = Controller()
++        self.server = make_server('127.0.0.1',0,hack_qut.app,request_handler=QuietHandler)
++        self.url = 'http://127.0.0.1:'+str(self.server.server_port)
++        self.thread = threading.Thread(target=self.server.serve_forever,daemon=True)
++        self.thread.start()
++        self.backend = MockBackend()
++        self.bridge = Bridge(self.backend,io.StringIO())
++
++    def tearDown(self):
++        self.bridge.stop('test_shutdown')
++        self.server.shutdown()
++        self.server.server_close()
++        self.thread.join(2)
++        hack_qut.controller = self.previous
++
++    def request(self, route, method='GET'):
++        start = time.monotonic()
++        request = urllib.request.Request(self.url+route,method=method)
++        with urllib.request.urlopen(request,timeout=1) as response:
++            return json.load(response),start
++
++    def receive(self):
++        state,start = self.request('/api/state')
++        return self.bridge.receive(state,start)
++
++    def test_http_to_mock_commands_then_stop_and_manual_rearm(self):
++        self.controller.update((.5,.5),1,time.monotonic())
++        reply,_ = self.request('/api/enable','POST')
++        self.assertTrue(reply['ok'])
++        self.assertTrue(self.receive(), self.bridge.reason)
++        self.assertTrue(self.bridge.arm())
++        for i in range(5):
++            self.controller.update((.8,.2),1,time.monotonic())
++            self.assertTrue(self.receive(), (i, self.bridge.reason, self.controller.state()))
++            self.assertTrue(self.bridge.step())
++        self.assertEqual(len(self.backend.actions),5)
++        self.assertGreater(self.backend.position[0],.3)
++        self.assertLess(self.backend.position[1],0.)
++        self.request('/api/stop','POST')
++        self.assertFalse(self.receive())
++        self.assertEqual(self.backend.holds,1)
++        self.controller.update((.5,.5),1,time.monotonic())
++        self.request('/api/enable','POST')
++        self.assertTrue(self.receive())
++        self.assertFalse(self.bridge.step())
++        self.assertTrue(self.bridge.arm())
++
++    def test_no_more_responses_independent_watchdog_holds(self):
++        self.controller.update((.5,.5),1,time.monotonic())
++        self.request('/api/enable','POST')
++        self.assertTrue(self.receive())
++        self.assertTrue(self.bridge.arm())
++        deadline = time.monotonic()+1
++        while self.bridge.enabled and time.monotonic()<deadline:
++            self.bridge.watchdog()
++            time.sleep(.01)
++        self.assertFalse(self.bridge.enabled)
++        self.assertEqual(self.backend.holds,1)
+diff --git a/tests/test_so101_backend.py b/tests/test_so101_backend.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_so101_backend.py
+@@ -0,0 +1,122 @@
++import unittest
++from types import SimpleNamespace
++import numpy as np
++from so101_backend import ARM_JOINTS, So101Backend
++from robot_bridge import Bridge
++from workspace import Workspace
++
++
++class FakeSDK:
++    config = SimpleNamespace(use_degrees=True)
++    def __init__(self):
++        self.sent = []
++    def get_observation(self):
++        return {**{n+'.pos':0. for n in ARM_JOINTS},'gripper.pos':35.}
++    def send_action(self, action):
++        self.sent.append(dict(action))
++        return dict(action)
++
++
++class FakeKinematics:
++    joint_names = ARM_JOINTS
++    def forward_kinematics(self, q):
++        pose = np.eye(4)
++        pose[:3,3] = [.3+q[0]*.001,0,.2]
++        return pose
++    def inverse_kinematics(self, q, desired, **kwargs):
++        self.last_q = q
++        self.last_desired = desired
++        return np.array([1.,0.,0.,0.,0.])
++
++
++class AdapterTests(unittest.TestCase):
++    def setUp(self):
++        self.sdk = FakeSDK()
++        self.ik = FakeKinematics()
++        self.backend = So101Backend(self.sdk,self.ik,
++            {n:(-90.,90.) for n in ARM_JOINTS},
++            {n:60. for n in ARM_JOINTS}, lambda *args:True)
++        self.obs = self.backend.observe()
++        self.action = self.backend.solve([.301,0,.2],self.obs,self.obs)
++
++    def test_gripper_excluded_from_ik_and_preserved(self):
++        self.assertEqual(len(self.ik.last_q),5)
++        self.assertEqual(self.action['gripper.pos'],35.)
++        np.testing.assert_allclose(self.ik.last_desired[:3,:3],np.eye(3))
++
++    def test_joint_velocity_limit(self):
++        self.assertFalse(self.backend.validate(self.action,[.301,0,.2],self.obs,self.obs,.001))
++        self.assertTrue(self.backend.validate(self.action,[.301,0,.2],self.obs,self.obs,.04))
++
++    def test_fk_residual(self):
++        self.assertFalse(self.backend.validate(self.action,[.35,0,.2],self.obs,self.obs,.04))
++
++    def test_collision_gate(self):
++        self.backend.path_validator = lambda *args:False
++        self.assertFalse(self.backend.validate(self.action,[.301,0,.2],self.obs,self.obs,.04))
++        self.assertEqual(self.sdk.sent,[])
++
++    def test_joint_limit(self):
++        self.backend.limits['shoulder_pan'] = (-.5,.5)
++        self.assertFalse(self.backend.validate(self.action,[.301,0,.2],self.obs,self.obs,.04))
++
++    def test_hold_uses_observation_and_sdk_return(self):
++        self.assertEqual(self.backend.hold(),self.sdk.get_observation())
++        self.assertEqual(len(self.sdk.sent),1)
++
++    def test_wrong_ik_vector_rejected_before_send(self):
++        self.ik.inverse_kinematics = lambda *args,**kwargs: np.array([1.,2.])
++        with self.assertRaisesRegex(ValueError,'five'):
++            self.backend.solve([.301,0,.2],self.obs,self.obs)
++        self.assertEqual(self.sdk.sent,[])
++
++    def test_invalid_reference_rotation_rejected(self):
++        bad = dict(self.obs,ee_rotation=[0]*9)
++        with self.assertRaisesRegex(ValueError,'reference'):
++            self.backend.solve([.301,0,.2],bad,self.obs)
++
++    def test_orientation_error_rejected(self):
++        original = self.ik.forward_kinematics
++        def rotated(q):
++            pose = original(q)
++            pose[:3,:3] = [[0,-1,0],[1,0,0],[0,0,1]]
++            return pose
++        self.ik.forward_kinematics = rotated
++        self.assertFalse(self.backend.validate(self.action,[.301,0,.2],self.obs,self.obs,.04))
++
++    def test_normalized_arm_units_rejected(self):
++        self.sdk.config = SimpleNamespace(use_degrees=False)
++        with self.assertRaisesRegex(ValueError,'degree'):
++            So101Backend(self.sdk,self.ik,self.backend.limits,self.backend.speeds,lambda *args:True)
++
++    def test_existing_sdk_adapter_through_bridge_and_watchdog(self):
++        # This uses fake SDK and fake kinematics; it never opens hardware ports.
++        w = Workspace(x=(.25,.35),y=(-.02,.02),z=.2,profile='commissioned')
++        now = [10.]
++        bridge = Bridge(self.backend,clock=lambda:now[0],workspace=w)
++        state = dict(position_m=[.31,0.,.2],motion_enabled=True,frame_id=1,
++                     frame_age_s=0.,coordinate_frame='robot_base',units='m',workspace=w.metadata())
++        self.assertTrue(bridge.receive(state,now[0]))
++        self.assertTrue(bridge.arm())
++        now[0] += .04
++        self.assertTrue(bridge.step())
++        self.assertEqual(self.sdk.sent[-1]['shoulder_pan.pos'],1.)
++        self.assertEqual(self.sdk.sent[-1]['gripper.pos'],35.)
++        now[0] += .201
++        bridge.watchdog()
++        self.assertFalse(bridge.enabled)
++        self.assertEqual(self.sdk.sent[-1],self.sdk.get_observation())
++
++    def test_sdk_clipping_configuration_rejected(self):
++        self.sdk.config = SimpleNamespace(use_degrees=True,max_relative_target=1.)
++        with self.assertRaisesRegex(ValueError,'clipping'):
++            So101Backend(self.sdk,self.ik,self.backend.limits,self.backend.speeds,lambda *args:True)
++
++    def test_altered_sdk_return_raises_for_bridge_to_hold(self):
++        self.sdk.send_action = lambda action: dict(action,**{'shoulder_pan.pos':.5})
++        with self.assertRaisesRegex(ValueError,'altered'):
++            self.backend.send(self.action)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/tests/test_workspace.py b/tests/test_workspace.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_workspace.py
+@@ -0,0 +1,50 @@
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from control import Controller
++from robot_bridge import Bridge, MockBackend
++from workspace import Workspace
++
++
++class WorkspaceTests(unittest.TestCase):
++    def test_corner_directions_and_metres(self):
++        w = Workspace()
++        for wrist, expected in [((.1,.1),[.4,.1,.2]), ((.9,.9),[.2,-.1,.2])]:
++            for actual, value in zip(w.map_wrist(*wrist),expected):
++                self.assertAlmostEqual(actual,value)
++
++    def test_custom_workspace_used_in_whole_pipeline(self):
++        w = Workspace(x=(.12,.18),y=(-.03,.03),z=.15,target_speed_m_s=.01,
++                      profile='commissioned')
++        now = [1.]
++        c = Controller(lambda:now[0],workspace=w)
++        backend = MockBackend(w)
++        b = Bridge(backend,clock=lambda:now[0],workspace=w)
++        c.update((.5,.5),1,now[0])
++        self.assertTrue(c.enable())
++        self.assertTrue(b.receive(c.state(),now[0]))
++        self.assertTrue(b.arm())
++        now[0] += .04
++        c.update((.1,.1),1,now[0])
++        self.assertTrue(b.receive(c.state(),now[0]))
++        self.assertTrue(b.step())
++        self.assertTrue(w.contains(backend.position))
++        self.assertEqual(backend.position[2],.15)
++
++    def test_unconfigured_site_template_cannot_load(self):
++        template = Path(__file__).resolve().parents[1]/'workspace.site.template.json'
++        with self.assertRaises(ValueError):
++            Workspace.load(template)
++
++    def test_invalid_speed_or_bounds(self):
++        for kwargs in ({'target_speed_m_s':.1},{'x':(.4,.2)},{'z':float('nan')}):
++            with self.assertRaises(ValueError):
++                Workspace(**kwargs)
++
++    def test_mm_workspace_rejected(self):
++        with tempfile.TemporaryDirectory() as folder:
++            path = Path(folder)/'bad.json'
++            path.write_text(json.dumps({'units':'mm','coordinate_frame':'robot_base'}))
++            with self.assertRaisesRegex(ValueError,'metre'):
++                Workspace.load(path)
+diff --git a/verify_camera.py b/verify_camera.py
+new file mode 100644
+--- /dev/null
++++ b/verify_camera.py
+@@ -0,0 +1,57 @@
++"""Bounded camera/MediaPipe smoke check, without robot commands or image storage."""
++import argparse
++import json
++import statistics
++import time
++from pathlib import Path
++
++
++def main():
++    import cv2
++    import mediapipe as mp
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--camera',type=int,default=0)
++    parser.add_argument('--frames',type=int,default=30)
++    parser.add_argument('--report',default='logs/camera_check.json')
++    args = parser.parse_args()
++    if not 1 <= args.frames <= 300:
++        parser.error('--frames must be between 1 and 300')
++    cap = cv2.VideoCapture(args.camera)
++    report = dict(opencv=cv2.__version__,mediapipe=mp.__version__,
++                  camera_index=args.camera,camera_open=cap.isOpened(),frames=0,
++                  detected_hand_frames=0,max_processing_age_s=0.)
++    ages = []
++    try:
++        with mp.solutions.hands.Hands(model_complexity=0,max_num_hands=2,
++                                     min_detection_confidence=.7,
++                                     min_tracking_confidence=.7) as hands:
++            for _ in range(args.frames):
++                start = time.monotonic()
++                ok,frame = cap.read()
++                if not ok:
++                    break
++                frame = cv2.flip(frame,1)
++                results = hands.process(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB))
++                report['frames'] += 1
++                report['frame_shape'] = list(frame.shape)
++                report['detected_hand_frames'] += bool(results.multi_hand_landmarks)
++                age = time.monotonic()-start
++                ages.append(age)
++                report['max_processing_age_s'] = max(report['max_processing_age_s'],age)
++    finally:
++        cap.release()
++    report['requested_frames'] = args.frames
++    report['capture_and_processing_passed'] = report['frames'] == args.frames
++    report['frames_over_200ms'] = sum(age > .2 for age in ages)
++    report['first_frame_age_s'] = ages[0] if ages else None
++    report['median_frame_age_s'] = statistics.median(ages) if ages else None
++    path = Path(args.report)
++    path.parent.mkdir(parents=True,exist_ok=True)
++    path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
++    print(json.dumps(report,ensure_ascii=False))
++    if not report['capture_and_processing_passed']:
++        raise SystemExit(1)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/verify_server.py b/verify_server.py
+new file mode 100644
+--- /dev/null
++++ b/verify_server.py
+@@ -0,0 +1,63 @@
++"""Start the real webcam/Flask entrypoint briefly and inspect its local API.
++
++Uses no robot backend, never enables motion, and terminates only its own child.
++"""
++import json
++import socket
++import subprocess
++import sys
++import time
++import urllib.request
++from pathlib import Path
++
++
++def main():
++    root = Path(__file__).resolve().parent
++    logs = root/'logs'
++    logs.mkdir(exist_ok=True)
++    try:
++        with socket.create_connection(('127.0.0.1',5001),timeout=.1):
++            raise RuntimeError('Port 5001 already occupied; existing service will not be stopped')
++    except (ConnectionRefusedError, socket.timeout):
++        pass
++    with (logs/'server_check_stdout.txt').open('w',encoding='utf-8') as output:
++        process = subprocess.Popen([sys.executable,str(root/'hack_qut.py'),'--no-preview'],
++            cwd=root,stdout=output,stderr=subprocess.STDOUT,
++            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
++        try:
++            deadline = time.monotonic()+45
++            last = None
++            while time.monotonic()<deadline:
++                if process.poll() is not None:
++                    raise RuntimeError('Tracker exited during startup; inspect logs/server_check_stdout.txt')
++                try:
++                    with urllib.request.urlopen('http://127.0.0.1:5001/api/state',timeout=.5) as response:
++                        last = json.load(response)
++                    if last['frame_id'] > 1 and last['frame_age_s'] is not None and 0 <= last['frame_age_s'] <= .2:
++                        break
++                except (OSError,ValueError):
++                    pass
++                time.sleep(.1)
++            if last is None or last['frame_id'] <= 1 or last['frame_age_s'] is None or not 0 <= last['frame_age_s'] <= .2:
++                raise RuntimeError('No processed camera frames; inspect logs/server_check_stdout.txt')
++            page_started = time.monotonic()
++            # Static-page startup is independent of the bridge's short API timeout.
++            with urllib.request.urlopen('http://127.0.0.1:5001/',timeout=5) as response:
++                html_ok = response.status == 200 and b'canvas' in response.read()
++            if last['motion_enabled'] is not False:
++                raise RuntimeError('Tracker unexpectedly enabled motion')
++            report = dict(camera_and_api_passed=html_ok,state=last,robot_backend_used=False,
++                          monitor_page_load_s=time.monotonic()-page_started)
++            (logs/'server_check.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
++            print(json.dumps(report,ensure_ascii=False))
++        finally:
++            process.terminate()
++            try:
++                process.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                process.kill()
++                process.wait(timeout=5)
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/workspace.py b/workspace.py
+new file mode 100644
+--- /dev/null
++++ b/workspace.py
+@@ -0,0 +1,52 @@
++"""Explicit screen-to-robot workspace in base-frame metres."""
++import json
++import math
++from dataclasses import dataclass
++from pathlib import Path
++
++
++@dataclass(frozen=True)
++class Workspace:
++    x: tuple = (.20, .40)
++    y: tuple = (-.10, .10)
++    z: float = .20
++    target_speed_m_s: float = .05
++    profile: str = 'virtual'
++
++    def __post_init__(self):
++        for bounds in (self.x, self.y):
++            if len(bounds) != 2 or any(type(v) not in (int, float) or not math.isfinite(v) for v in bounds) or bounds[0] >= bounds[1]:
++                raise ValueError('Workspace bounds must be finite increasing metre values')
++        if type(self.z) not in (int, float) or not math.isfinite(self.z):
++            raise ValueError('Fixed Z must be finite metres')
++        if not math.isfinite(self.target_speed_m_s) or not 0 < self.target_speed_m_s <= .05:
++            raise ValueError('Target speed must be positive and <= 0.05m/s')
++        if self.profile not in ('virtual', 'commissioned'):
++            raise ValueError('Unknown workspace profile')
++
++    @classmethod
++    def load(cls, path):
++        data = json.loads(Path(path).read_text(encoding='utf-8'))
++        if data.get('units') != 'm' or data.get('coordinate_frame') != 'robot_base':
++            raise ValueError('Workspace requires robot_base frame and metre units')
++        return cls(x=tuple(data['x_m']), y=tuple(data['y_m']), z=data['fixed_z_m'],
++                   target_speed_m_s=data['target_speed_m_s'], profile=data['profile'])
++
++    def contains(self, position, z_tolerance=1e-8):
++        return (len(position) == 3 and
++                all(type(v) in (int, float) and math.isfinite(v) for v in position) and
++                self.x[0] <= position[0] <= self.x[1] and
++                self.y[0] <= position[1] <= self.y[1] and
++                abs(position[2]-self.z) <= z_tolerance)
++
++    def center(self):
++        return [(self.x[0]+self.x[1])/2, (self.y[0]+self.y[1])/2, self.z]
++
++    def map_wrist(self, u, v):
++        return [self.x[1]-(v-.1)/.8*(self.x[1]-self.x[0]),
++                self.y[1]-(u-.1)/.8*(self.y[1]-self.y[0]), self.z]
++
++    def metadata(self):
++        return dict(profile=self.profile, x_m=list(self.x), y_m=list(self.y),
++                    fixed_z_m=self.z, target_speed_m_s=self.target_speed_m_s,
++                    coordinate_frame='robot_base', units='m')
+diff --git a/workspace.site.template.json b/workspace.site.template.json
+new file mode 100644
+--- /dev/null
++++ b/workspace.site.template.json
+@@ -0,0 +1,10 @@
++{
++  "profile": "unconfigured",
++  "coordinate_frame": "robot_base",
++  "units": "m",
++  "x_m": [null, null],
++  "y_m": [null, null],
++  "fixed_z_m": null,
++  "target_speed_m_s": 0.01,
++  "note": "Fill only after robot base axes, URDF metre units, measured EE and collision/reachability checks. Set profile to commissioned after site verification and obtain user approval before hardware motion."
++}
+diff --git a/workspace.virtual.json b/workspace.virtual.json
+new file mode 100644
+--- /dev/null
++++ b/workspace.virtual.json
+@@ -0,0 +1,9 @@
++{
++  "profile": "virtual",
++  "coordinate_frame": "robot_base",
++  "units": "m",
++  "x_m": [0.20, 0.40],
++  "y_m": [-0.10, 0.10],
++  "fixed_z_m": 0.20,
++  "target_speed_m_s": 0.05
++}

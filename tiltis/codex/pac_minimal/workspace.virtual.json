@@ -1,0 +1,9 @@
+{
+  "profile": "virtual",
+  "coordinate_frame": "robot_base",
+  "units": "m",
+  "x_m": [0.20, 0.40],
+  "y_m": [-0.10, 0.10],
+  "fixed_z_m": 0.20,
+  "target_speed_m_s": 0.05
+}

@@ -1,0 +1,10 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>PAC 손목 제어</title>
+<style>body{font:18px system-ui;max-width:760px;margin:40px auto;padding:20px}button{padding:12px;margin:8px}pre{background:#eee;padding:20px}canvas{border:1px solid #aaa}</style>
+<h1>PAC 손목 목표 모니터</h1><p>영상의 노란 영역에 손 하나를 놓고 활성화하세요. 위쪽 → +X, 오른쪽 → −Y.</p>
+<p>아래 표시는 명령 목표입니다. 실제 로봇 위치는 bridge 로그에서 확인합니다.</p>
+<button onclick="command('enable')">입력 수동 활성화</button><button onclick="command('stop')">입력 정지</button>
+<canvas id="plot" width="400" height="300"></canvas><pre id="state">연결 중</pre>
+<script>
+async function command(action){await fetch('/api/'+action,{method:'POST'});}
+async function refresh(){try{let r=await fetch('/api/state',{cache:'no-store'});let s=await r.json();document.getElementById('state').textContent=JSON.stringify(s,null,2);let w=s.workspace;let c=document.getElementById('plot').getContext('2d');c.clearRect(0,0,400,300);c.fillStyle=s.motion_enabled?'green':'red';c.beginPath();c.arc((w.y_m[1]-s.position_m[1])/(w.y_m[1]-w.y_m[0])*400,(w.x_m[1]-s.position_m[0])/(w.x_m[1]-w.x_m[0])*300,7,0,Math.PI*2);c.fill();}catch(e){document.getElementById('state').textContent='서버 연결 단절';}setTimeout(refresh,50);}refresh();
+</script></html>

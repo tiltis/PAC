@@ -1,5 +1,9 @@
 This file provides guidance to AI agents when working with code in this repository.
 
+For PAC 2026 work under `tiltis/`, read `tiltis/AGENTS.md` and
+`tiltis/COLLABORATION.md` before editing. Claude Code and Codex keep their work
+in separate folders and review each other's handoffs before continuing.
+
 > **User-facing help → [`AGENT_GUIDE.md`](./AGENT_GUIDE.md)** (SO-101 setup, recording, picking a policy, training duration, eval — with copy-pasteable commands).
 
 ## Project Overview
