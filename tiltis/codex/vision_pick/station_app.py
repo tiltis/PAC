@@ -17,7 +17,7 @@ preview_picker = GuardedVisionPicker(
     seq.sensor,
     base.he if base is not None else handeye.load(os.environ.get("HANDEYE") or station / "calib" / "handeye.json"),
     dry_run=base.dry_run if base is not None else True,
-    cfg=base.cfg if base is not None else None,
+    cfg=dict(base.cfg, require_flat_placement=True) if base is not None else None,
     joint_map=base.joint_map if base is not None else None,
 )
 if base is not None:

@@ -13,6 +13,7 @@ import numpy as np
 
 import grasp
 import kinematics as K
+from placement import bind_box, placement_config_error, verify_release
 
 
 @dataclass(frozen=True)
@@ -149,12 +150,16 @@ class GuardedVisionPicker(grasp.VisionPicker):
 
     def __init__(self, sensor, he, dry_run=False, cfg=None, joint_map=None, limits=None, clock=time.time):
         super().__init__(sensor, he, dry_run=dry_run, cfg=cfg, joint_map=joint_map)
+        self.cfg = dict(self.cfg, side_alignment='box')
         self.limits = limits or Limits()
         self.clock = clock
+        self.held_box = None
 
     def preflight_ready(self):
         """Static installation checks before even home/open commands; no camera or motor IO."""
         err = calibration_error(self.he, self.limits) or workspace_error(self.cfg)
+        if not err and self.cfg.get('require_flat_placement'):
+            err = placement_config_error(self.cfg.get('placement'))
         return {"ok": err is None, "reason": err}
 
     def locate(self):
@@ -213,3 +218,27 @@ class GuardedVisionPicker(grasp.VisionPicker):
         if not err:
             err = change_error(planned_loc, current, self.limits)
         return {"ok": err is None, "reason": err}
+
+    def capture_held_box(self, loc, joints):
+        self.held_box = None
+        if not self.cfg.get('require_flat_placement'):
+            return {'ok':True}
+        try:
+            R = np.asarray(self.he['R'],float)
+            axes = R @ np.column_stack([loc['long_axis_cam'],loc['short_axis_cam'],loc['table_normal_cam']])
+            axes /= np.linalg.norm(axes,axis=0)
+            top = R @ (_vector(loc['top_center_cam_mm'])/1000) + _vector(self.he['t'])
+            sizes = [*loc['top_size_mm'],loc['top_height_mm']]
+            self.held_box = bind_box(self.robot.fk(K.from_lerobot(joints,self.joint_map)),top,axes,np.asarray(sizes)/1000)
+            return {'ok':True,'slip_verified':False}
+        except (KeyError,TypeError,ValueError):
+            return {'ok':False,'reason':'held_box_geometry_or_joint_state_missing'}
+
+    def verify_at_release(self, bin_name, joints):
+        if not self.cfg.get('require_flat_placement'):
+            return {'ok':True}
+        try:
+            tool = self.robot.fk(K.from_lerobot(joints,self.joint_map))
+            return verify_release(self.held_box,tool,self.cfg.get('placement'),bin_name)
+        except (KeyError,TypeError,ValueError):
+            return {'ok':False,'reason':'release_joint_state_missing'}

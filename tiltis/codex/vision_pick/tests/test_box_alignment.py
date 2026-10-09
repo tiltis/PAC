@@ -46,7 +46,7 @@ def test_side_plan_passes_same_box_orientation_to_approach_grasp_and_lift_ik():
     model = IKSolver()
     loc = dict(edges(20), top_height_mm=45, table_normal_cam=[0, 0, -1],
                box_center_on_table_cam_mm=[220, 0, 500], top_center_cam_mm=[220, 0, 455])
-    cfg = dict(grasp.DEFAULTS, grasp_mode="side")
+    cfg = dict(grasp.DEFAULTS, grasp_mode="side", side_alignment='box')
     result = grasp.plan_side(loc, HE, model, cfg)
     assert result["ok"] and result["orientation_source"] == "depth_camera_box_axes", result
     assert len(model.calls) == 3
@@ -77,7 +77,7 @@ def test_unreachable_box_aligned_orientation_is_refused_without_radial_fallback(
     import kinematics as K
     loc = dict(edges(30), top_height_mm=45, table_normal_cam=[0,0,-1],
                box_center_on_table_cam_mm=[220,0,500], top_center_cam_mm=[220,0,455])
-    result = grasp.plan_side(loc, HE, K.SO101(), dict(grasp.DEFAULTS, grasp_mode='side'))
+    result = grasp.plan_side(loc, HE, K.SO101(), dict(grasp.DEFAULTS, grasp_mode='side', side_alignment='box'))
     assert result['ok'] is False and 'approach' not in result
 
 
@@ -91,7 +91,7 @@ def test_jaw_tcp_correction_does_not_rotate_away_from_measured_box_edges():
     model = Solver()
     loc = dict(edges(20), top_height_mm=90, box_center_on_table_cam_mm=[220, 0, 500])
     offset = [-.0281, .019, -.0347]
-    p = grasp.plan_side(loc, HE, model, dict(grasp.DEFAULTS, grasp_mode="side", side_jaw_offset_frame_m=offset))
+    p = grasp.plan_side(loc, HE, model, dict(grasp.DEFAULTS, grasp_mode="side", side_alignment='box', side_jaw_offset_frame_m=offset))
     assert p["ok"], p
     tip, direction, yaw = model.positions[0]
     jaw = np.array([np.cos(yaw), np.sin(yaw), 0])

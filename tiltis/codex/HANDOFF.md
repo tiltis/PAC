@@ -226,3 +226,21 @@ Colab 실행 결과: https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57Z
 동시 작업으로 남아 있던 native RGB-D/depth/server 및 codex RGB/SAM/preview 변경은 이 Claude 실행본 스냅샷 커밋에 포함하지 않는다. 영상·로그·DB·가상환경·비밀값과 현장 보정 백업 파일도 제외한다. 기존에 추적하지 않던 robot_setup 팩은 3dffdae에서 제거된 이력이 있어 자동으로 재추가하지 않았다.
 
 추가 전체 검증: station/tests **118 passed, 4 warnings (82.50s)**. 명령: 시스템 폴더에서 C:/PAC2026_system/.venv-station/Scripts/python.exe -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=. 초기 경로 지정 두 건은 수집 실패 후 올바른 폴더/파일로 재실행했다.
+
+## 2026-10-09 Gemini RGB-D 시각 복구 / SAM 윗면 / 놓기 거부 연결
+
+현재 사용자 요구는 SAM 윗면/상자 각도에 맞춘 집기, 윗면에서 이어지는 3개 테이프 판정, 바닥면을 아래로 놓기다. 승인된 기존 radial 1회 run33은 42.09s에 완료했으나 사용자가 옆 놓기/빨강 판정을 지적했다. 이후 이번 수정으로 로봇에 새 이동 명령을 보내지 않았다. 동시에 Claude/사용자가 8000에서 X1/X3/X4/R212711 등을 실행했으므로 사진/실행 주체를 혼동하지 말 것. X3 기록은 no_anomaly/ok 완료이며 Codex 새 SAM 실행 결과가 아니다.
+
+변경: 공유 sensor의 native_rgbd.py/depth.py/server.py와 tests; codex rgb_box의 preview_geometry/guided_top/top_tape/colab_native_top 및 테스트; shared grasp의 선택적 side_alignment=box와 sequencer held/release hooks; own guard/placement/station_app/preview_server. README에 입력 계약/명령/실측과 모의 경계를 기록했다. peer 기본 radial 방식은 유지하고 Codex guard는 box 방향을 요구한다. 위치·TCP·정합 코드를 복제하지 않고 기존 SDK/locator/hand-eye/IK/FK를 재사용한다.
+
+Gemini 컬러와 깊이는 같은 SDK pipeline의 factory intrinsics/extrinsics로 rectified export. native depth와 기존 hand-eye 프레임을 유지한다. host arrival과 capture exposure를 분리했다. 장치 시각이 21474836480us로 고정되고 global 시각이 오래돼 strict NPZ를 503으로 막는 실패를 실제 재현했다. Windows PowerShell은 실행 정책 기본 Restricted였다. 관리자 helper 프로세스에만 RemoteSigned를 적용했고 지속 설정은 변경하지 않았다. 공식 obsensor_metadata_win10.ps1은 없는 MetadataBufferSizeInKB0 조회에서 예외를 냈다. 연결된 Gemini PID0670의 depth/IR/RGB 인터페이스, 2개 공식 DeviceClasses에 공식 요구 DWord 값5를 추가하고 6개 전부 조회 검증했다. 다른 장치/인터페이스나 허브를 수정하지 않았다. 기존값·helper·전체 로그는 C:/PAC2026_system/Log/codex_metadata_*에 보관한다.
+
+21:35 이후 다른 작업에서 센서가 재시작된 것으로 PID13828→26888 변경을 확인했다. 소유 변경 시 Codex 재시작은 취소했다. 이후 /health gemini_rgbd ready=true/capture_time_verified=true/error=null, 장치 exposure clock 증가, host/global 시각 일치 확인. strict /vision/rgbd.npz에서 약1.89MB의 실제 쌍을 받고 두 촬영 시각 차이12.54ms 확인. 증거 verified_capture_rgbd.npz/metadata.json은 아래 데이터 폴더. 센서 현재 소스와 실행본 diff는 마지막 old-preview 폐기 처리 3줄씩뿐이며 그 변경은 아직 실행본에 덮어쓰지 않았다. 8000 station/COM8/현장 calibration/poses는 이번 수정으로 교체하거나 재시작하지 않았다.
+
+실제 Gemini 저장 사진 SAM: 단일 brown positive에서는 테이프가 제외되고 IoU 최대0.6981로 거부됨. 9개 surface positives+4 negatives를 함께 줘 기존 IoU≥0.7 기준에서0.8048 통과. Colab Tesla T4에서 공유 코드를 실행해 전체 DINO/SAM926.11ms, SAM/depth 경계 RMS5.922px 확인(보정 RMS 아님). DINO의 책상 전체 흰 상자 오검출도 보존해 제어 확정으로 쓰지 않았다. raw SAM 마스크와 SAM 자체 convex quad polygon을 모두 저장했다. 윗면 테이프 rule은 H처럼 이어진 접점3을 모의 검증했지만 실제 저장 사진은 1개 확정/폭 과다 후보1개로 unmeasurable; 기존 rules에 자동 적용하지 않았다. 매번 학습 없이 설치 보정+현재 측정으로 처리하는 방향이지만 실제 정상/누락 여러 면 확인이 남는다.
+
+현재 8002: own preview PID28876/exec89586 (추후 재시작 시 바뀜), 3카메라 live와 별도 saved_photo_only SAM 결과. /api/sam-result는 입력파일의 motion/ready 값을 false로 강제하고 live_connected=false. 공유 8000의 실제 구동은 원래 Claude 코드다. SAM 실기에는 factory 정합의 현장 검증, 실제 작업 범위/관절/도구점/경로, 5축 SO101의 각도 도달성을 확인해야 한다. placement는 실제 관절 FK로 예상 자세/바닥 높이/영역을 검사하며 box slip/실제 접촉/놓기 안정성은 증명하지 않는다. 측정 placement 설정이 없으면 own station_app preflight에서 거부; 모의 범위를 현장에 넣지 않았다.
+
+직접 테스트: RGB 전체53 pass (8.38s); own vision_pick 전체67 pass/1warn (32.87s); 공유 station sequencer+vision_pick65 pass/1warn (49.97s); shared sensor native_rgbd/depth/server58 pass/2warn (9.49s). 마지막 추가 회귀: native_rgbd10 pass (1.63s), own preview_server2 pass/1warn (2.23s), placement+preview 부분8 pass/1warn (4.49s). 마지막 두 회귀는 앞 전체 개수와 구별한다. 공통 각 폴더 .venv-station/.venv-sensor python -m pytest 지정tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=. Python compileall/git diff --check도 수행. 초기 전체 실패는 4ce4d59가 side_box_alignment를 제거해 14건과 RGB연결1건 재현; optional box mode로 복원했고 기존 radial field 선택은 보존했다. 테스트 fixture 응답 누락2건 및 편집 indentation 수집 오류는 수정 후 재실행했다.
+
+증거: C:/Users/tilti/PAC2026_data/integration_20261009 (native 사진/prompt/15개 raw SAM mask 진단, Colab ZIP 해제 결과/colab_proof.png, 검증된 capture 파일). 미디어/NPZ/log/weights/보정값은 Git 제외. Colab 결과 노트북 https://colab.research.google.com/drive/1R6e5vQvYaSt0QAA57ZZf3plskmLyPpJI. 다운로드 완료 후 브라우저 제어가 응답하지 않아 마지막 T4 해제는 확인되지 않았다. 다음에는 notebook 런타임 상태를 확인할 것.

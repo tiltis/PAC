@@ -109,3 +109,19 @@ T4 GPU 런타임 선택 → 위에서부터 실행 → RGB 사진 업로드 → 
 2. 현장 카메라의 rectified RGB/depth·동기화 묶음 API와 실측 RGB–depth 정합을 확보해 `SamDepthSensorAdapter`를 연결하고, 실제 화면에서 윗면 3D 중심/두 축을 확인한다. 현재 새 코드가 실행 중인 8000 화면에 자동 적용된 상태는 아니다.
 3. FK/실측 도구점과 카메라–로봇 좌표 보정·실측 workspace를 확인하고 시뮬레이션에서 도달성/경로/충돌을 검증한다. 실제 조건은 별도 확인한다.
 4. 현장 확인과 사용자 승인 후 실제 저속 집기를 검증한다. 현재 모듈에는 모터 호출이 없으며 상자 위치로 로봇을 움직이지 않는다.
+
+## 2026-10-09 Gemini 네이티브 RGB-D와 저장 사진 SAM 검증
+
+`sensor/server.py --depth --depth-rgb`는 Gemini의 깊이와 자체 컬러를 **같은 pipeline**에서 받는다. Arducam RGB와 같은 픽셀이라고 가정하지 않는다. SDK factory intrinsics/extrinsics와 OpenCV rectification을 사용하고 native depth/mm 및 기존 hand-eye 기준을 유지한다. 등록은 factory 출처이고 `validated=false`; 현장 재투영 검증 완료를 뜻하지 않는다.
+
+- `/vision/rgbd.npz`: 증가하는 device clocks, SDK global exposure timestamps, age≤2s/skew≤100ms를 검증한 쌍만 반환. 미검증은 503이다.
+- `/vision/preview_rgbd.npz`: host arrival 기준의 관찰 전용 쌍. 촬영 시각 검증을 대신하지 않는다.
+- Windows에서는 UVC metadata 등록이 필요하다. SDK의 `shared/obsensor_metadata_win10.md`를 따른다. 현장에서는 공식 스크립트의 없는 속성 조회가 예외를 내, 연결된 Gemini 2의 3개 인터페이스/2개 DeviceClasses에 동일한 `MetadataBufferSizeInKB0=5`를 설정하고 6곳 모두 검증했다. 기존값 백업과 실행 기록은 C:/PAC2026_system/Log/codex_metadata_*에 있다. Windows PowerShell은 기본 Restricted였고 등록 프로세스만 RemoteSigned로 실행했다. 지속 실행 정책은 바꾸지 않았다.
+
+`preview_geometry.py`는 기존 depth top locator의 네이티브 윗면을 Gemini 컬러에 투영한다. `guided_top.py`는 표면 안 9개 positive와 밖 4개 negative를 함께 사용한다. 단일 갈색 positive만 쓰면 테이프가 SAM 마스크에서 빠지는 실제 사진을 재현했다. 깊이 prompt를 SAM 결과로 대체하지 않고, SAM mask IoU≥0.7 및 SAM 자체 4각 hull로 경계를 검증한다.
+
+`colab_native_top.py`는 업로드한 Gemini 사진/투영 prompt에 T4 추론을 실행하는 **오프라인** 검증이다. 2026-10-09 사진에서 IoU 0.8048, 경계 RMS 5.922px, 전체 DINO/SAM 단계 926.11ms를 측정했다. 경계 RMS는 이 사진의 SAM/depth 차이이며 보정 RMS가 아니다. DINO는 실제 갈색 상자 외 책상 전체를 흰 상자로 오검출한 결과도 그대로 보존한다. 실시간 입력·로봇 각도 정렬 완료로 보고하지 않는다.
+
+`top_tape.py`는 정규화한 윗면의 서로 다른 변에 이어진 초록 테이프 접점을 센다. 연결된 H 모양을 한 덩어리로 세는 오류를 피하지만, 가림/너무 넓은 패치/윗면 미확정은 unmeasurable이다. 원본 SAM mask와 SAM convex quadrilateral 영역을 구별해 저장한다. 실제 사진에서는 접점 하나와 폭 과다 후보가 나와 추가 검증이 필요하며, 3개라고 강제하거나 기존 검사 규칙에 자동 적용하지 않았다.
+
+저장 결과 표시: `vision_pick/preview_server.py --site-dir C:/PAC2026_system --port 8002 --sam-result-dir C:/Users/tilti/PAC2026_data/integration_20261009/colab_native_sam`. 3카메라 live와 저장 SAM 사진을 구별한다.

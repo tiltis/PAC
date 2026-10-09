@@ -137,7 +137,7 @@ def summarize(frame, now_s, max_age_s=2.0, policy=None):
 
 class OrbbecDepthSource:
     """--depth에서만 시작하는 독립 취득기. 레이저·노출·보정·펌웨어 설정을 쓰지 않는다."""
-    def __init__(self, timeout_s=3.0, sdk=None):
+    def __init__(self, timeout_s=3.0, sdk=None, rgb_pair=False):
         self.timeout_s = timeout_s
         self._sdk = sdk
         self._pipeline = None
@@ -153,6 +153,8 @@ class OrbbecDepthSource:
         self._reset_progress_count = 0
         self._device_clock_epoch = 0
         self.intrinsics = None
+        self.rgb_pair = rgb_pair
+        self._rgbd = None
 
     def start(self):
         if self._sdk is None:
@@ -190,6 +192,11 @@ class OrbbecDepthSource:
             pass
         config = sdk.Config()
         config.enable_stream(profile)
+        if self.rgb_pair:
+            if device.is_global_timestamp_supported():
+                device.enable_global_timestamp(True)
+            from native_rgbd import NativeRgbd
+            self._rgbd = NativeRgbd(sdk, self._pipeline, config, profile, self.device_info)
         self._pipeline.start(config)
         self._started = True
         self._thread = threading.Thread(target=self._receive, daemon=True)
@@ -226,6 +233,15 @@ class OrbbecDepthSource:
                 self._reset_candidate_ms = None
                 self._reset_progress_count = 0
                 observation.device_clock_epoch = self._device_clock_epoch
+                if self._rgbd is not None:
+                    try:
+                        self._rgbd.receive(frames, observation)
+                    except Exception as e:
+                        self._rgbd.latest = None
+                        self._rgbd.observation = None
+                        self._rgbd._clock_progress = 0
+                        self._rgbd._last_device_clocks = None
+                        self._rgbd.error = f"{type(e).__name__}: {e}"
                 with self._condition:
                     self._frame, self._error = observation, None
                     self._condition.notify_all()
@@ -252,6 +268,26 @@ class OrbbecDepthSource:
         """미리보기용 최신 프레임(없으면 None). 촬영 기록에는 next_after()를 쓴다."""
         with self._condition:
             return None if self._error else self._frame
+
+    def latest_rgbd(self):
+        with self._condition:
+            if self._rgbd is None:
+                raise RuntimeError("Gemini color/depth pair not enabled")
+            if self._rgbd.error or self._rgbd.latest is None:
+                raise RuntimeError(self._rgbd.error or "Gemini pair not ready")
+            return self._rgbd.latest
+
+    def rgbd_status(self):
+        pair = self._rgbd
+        return {"enabled": bool(self.rgb_pair), "ready": bool(pair and pair.latest and not pair.error),
+                "error": pair.error if pair else None, "timing": pair.last_timing if pair else None}
+
+    def latest_rgbd_preview(self):
+        """Read-only snapshot; unverified exposure times never become a control pair."""
+        with self._condition:
+            if self._rgbd is None or self._rgbd.observation is None:
+                raise RuntimeError("Gemini preview unavailable")
+            return self._rgbd.observation
 
     def health(self, max_age_s=2.0):
         with self._condition:

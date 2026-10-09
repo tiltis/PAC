@@ -149,3 +149,15 @@ auto hand-eye의 frac(높이 비율)를 그리퍼 개방률로 덮어쓰는 오�
 동시 작업으로 남아 있던 native RGB-D/depth/server 및 codex RGB/SAM/preview 변경은 이 Claude 실행본 스냅샷 커밋에 포함하지 않는다. 영상·로그·DB·가상환경·비밀값과 현장 보정 백업 파일도 제외한다. 기존에 추적하지 않던 robot_setup 팩은 3dffdae에서 제거된 이력이 있어 자동으로 재추가하지 않았다.
 
 추가 전체 검증: station/tests **118 passed, 4 warnings (82.50s)**. 명령: 시스템 폴더에서 C:/PAC2026_system/.venv-station/Scripts/python.exe -m pytest station/tests -q --disable-warnings --rootdir . --confcutdir . -o addopts=. 초기 경로 지정 두 건은 수집 실패 후 올바른 폴더/파일로 재실행했다.
+
+## 2026-10-09 Codex Gemini RGB-D / SAM / release hook 인계
+
+Codex가 sensor의 native_rgbd.py를 추가하고 기존 depth/server에 --depth-rgb, strict /vision/rgbd.npz와 preview 전용 /vision/preview_rgbd.npz, health diagnostics를 연결했다. 기존 depth좌표/mm/locator 및 hand-eye 기준을 유지하며 Gemini 자체 RGB를 동일 SDK pipeline에서 받는다. Arducam과 같은 픽셀로 쓰지 않는다. 장치 exposure 시각 고정/오래된 global시각에서는 strict API503을 실제 재현했다.
+
+Windows 관리자 metadata 등록: SDK 공식 script의 없는 속성 조회가 예외를 내 연결된 Gemini depth/IR/RGB 3개 인터페이스×2개 공식 DeviceClasses의 MetadataBufferSizeInKB0 DWord5를 같은 목적으로 등록하고 6곳 모두 값 확인. 기존값/실행근거는 C:/PAC2026_system/Log/codex_metadata_*; 지속 실행 정책은 변경하지 않았다. 다른 작업의 센서 재시작 후 ready/capture_time_verified true, 실제 strict NPZ 촬영 skew12.54ms 확인. 센서 소유 PID가 바뀌어 Codex 재시작은 취소했다. 8000/COM8/calibration/poses는 이번 변경으로 교체하지 않았다.
+
+공유 grasp.py의 field 기본 side_alignment=radial은 보존했다. optional box 모드를 추가하고 own GuardedVisionPicker가 box로 명시 선택, 상자 3D 변과 TCP 보정 후 방향 유지, IK 불가 시 radial fallback 금지. 공유 sequencer에 optional capture_held_box/verify_at_release를 추가: 실제 관절 읽기와 새 재집기 관측 사용, release check 실패면 집게 열기 전 기존 stop으로 종료. 기존 VisionPicker에는 hook이 없으므로 기본 field 흐름은 보존된다. Codex placement는 예상 FK/무미끄럼 가정이며 실제 바닥 접촉/놓기 안정성을 증명하지 않는다. 미측정 placement를 가짜값으로 설정하지 말 것. 현재 실기 station에는 새 hooks를 배포하지 않았다.
+
+Gemini 저장 사진을 Colab T4의 SAM으로 분리: 다중 surface positives로 테이프 재질 제외 문제를 줄여 IoU0.8048, 전체 DINO/SAM926.11ms. 영상 변 각도는 robot yaw와 다르다. DINO 책상 오검출도 남아 있고 factory reprojection/field/RGB-D 정합 검증이 필요하므로 사진 결과를 제어로 쓰지 않았다. top_tape는 서로 다른 윗면 접점으로 merged tape를 다루지만 실제 사진의 넓은 패치에서 unmeasurable; 기존 rules에 자동 적용되지 않았다. actual 정상/누락 여러 면 검증이 남는다. 8002에는 3카메라 live와 saved_photo_only 결과를 구별하여 표시한다.
+
+검증: RGB53, own guard67(1warn), station sequencer+vision_pick65(1warn), sensor native_rgbd/depth/server58(2warn) pass. 마지막 추가 회귀 native_rgbd10 및 preview2 pass, 전체와 별도 결과. own/peer README 및 ../codex/HANDOFF.md에 정확한 명령/시간/증거/실패 수정/남은 항목 기록. 런타임 sensor와 소스의 마지막 preview 폐기 3줄씩만 아직 다르며 자동 덮어쓰기하지 않았다. raw영상/NPZ/로그/가중치/현장보정은 Git에 넣지 않는다.

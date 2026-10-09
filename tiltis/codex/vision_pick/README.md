@@ -61,3 +61,11 @@ Claude의 현장 옆 집기 계획을 통합했고 공유 시편 설정은 `gras
 Claude 현장 코드의 턱 TCP 오프셋·높이/접근 조절·가까운 IK 해 선택·재집기 시 home·오차 로그·면별 테이프 판정은 보존했다. 턱 보정 때문에 상자 방향을 radial로 다시 돌리지 않는다. 도달 불가이면 거부한다. `dry_stage=grasp` 설정은 wrapper에서도 유지하고 하강 전에 관측을 재확인한다. 이 dry 모드는 실제 이동이 있으므로 8002 읽기 전용 확인과 구별한다.
 
 보정 티칭의 카메라 점과 로봇 점은 같은 파지 기준점이어야 한다. 자동 보정에서 그리퍼 개방률이 상자 높이 비율을 덮어쓰던 오류를 수정했고, 수동/자동 모두 설정된 턱 중심 오프셋을 FK에 적용한다. **이 수정 전 만든 hand-eye 파일은 해당 기준점에 맞는지 확인해야 한다.** 기존 현장 파일을 자동 재작성하지 않는다. 실측 workspace 없이 로봇 작업 범위를 임의로 채우지 않는다.
+
+## 2026-10-09 SAM 정렬/놓기 확인
+
+공유 `grasp.py`의 `side_alignment=radial`은 Claude 현장 방식으로 보존했다. Codex GuardedVisionPicker는 명시적으로 `box`를 선택해 측정한 상자 두 축을 hand-eye로 회전하여 접근/집게 방향에 사용한다. 턱 TCP 오프셋 보정 후에도 방향을 유지하고 IK 불가 시 radial로 대체하지 않는다. SO101 5축은 먼 위치의 임의 옆집기 각도를 풀지 못할 수 있으며, 현재 현장 좌표의 새 각도 정렬은 실기 검증되지 않았다.
+
+`placement.py`는 실제 집기 관절 FK와 관측 상자 윗면/치수로 상자 모서리를 tool frame에 결합하고, 놓기 관절 FK에서 예상 기울기·바닥 높이·분류 영역 전체 포함을 확인한다. `require_flat_placement=true`이면 측정한 placement 설정이 없는 설치를 preflight에서 거부한다. `station_app.py`의 새 제어 진입점에 이 요구를 적용했다. `placement`는 source_id/validated/frame=base_link/units=m, normal_base/plane_d_m, max_tilt_deg, bottom_clearance_m[min,max], zones_xy_m의 ok/human[min_xy,max_xy]가 필요하다. 가상 예시를 현장에 저장하지 않았다.
+
+공유 sequencer는 선택적 capture_held_box/verify_at_release hooks를 연결한다. 재집기의 새 관측을 사용하며, 실패/관절 읽기 오류에서는 집게를 열기 전에 기존 stop 경로로 끝낸다. 가상 테스트에서 옆 자세·높은 낙하·분류 영역 이탈·미측정 설정 거부와 실제 release 전 검사 순서를 확인했다. box slip/접촉/놓은 뒤 안정성은 이 FK 모델로 증명하지 못한다. 기존 실기 8000은 교체하거나 재시작하지 않아 이 guard가 적용된 상태가 아니다.

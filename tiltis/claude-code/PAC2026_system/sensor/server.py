@@ -8,6 +8,7 @@
 - 이 서버가 카메라와 Boson 시리얼 포트를 독점한다. capture_app.py와 동시에 실행하지 말 것.
 """
 import argparse
+import io
 import json
 import sys
 import threading
@@ -87,6 +88,34 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
 
     app = FastAPI(title="PAC2026 sensor", lifespan=lifespan)
 
+    @app.get("/vision/rgbd.npz")
+    def vision_rgbd():
+        source = state.get("depth")
+        try:
+            pair = source.latest_rgbd() if source else None
+            if pair is None or time.time() - min(c["captured_at_s"] for c in pair["metadata"]["captures"].values()) > 2:
+                raise RuntimeError("fresh Gemini pair unavailable")
+            buf = io.BytesIO()
+            np.savez_compressed(buf, rgb_bgr=pair["rgb_bgr"], depth_mm=pair["depth_mm"],
+                                metadata=np.frombuffer(json.dumps(pair["metadata"]).encode("utf-8"), dtype=np.uint8))
+            return Response(buf.getvalue(), media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+        except (RuntimeError, AttributeError) as e:
+            raise HTTPException(503, str(e))
+
+    @app.get("/vision/preview_rgbd.npz")
+    def preview_rgbd():
+        try:
+            pair = state["depth"].latest_rgbd_preview()
+            arrivals = [c["received_at_s"] for c in pair["metadata"]["captures"].values()]
+            if not all(0 <= time.time() - stamp <= 2 for stamp in arrivals):
+                raise RuntimeError("Gemini preview stale")
+            buf = io.BytesIO()
+            np.savez_compressed(buf, rgb_bgr=pair["rgb_bgr"], depth_mm=pair["depth_mm"],
+                                metadata=np.frombuffer(json.dumps(pair["metadata"]).encode("utf-8"), dtype=np.uint8))
+            return Response(buf.getvalue(), media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+        except (RuntimeError, AttributeError, KeyError) as e:
+            raise HTTPException(503, str(e))
+
     @app.get("/health")
     def health():
         rig = state["rig"]
@@ -95,6 +124,7 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
         depth_ok = source.health(depth_max_age_s) if source else False
         return {"ok": all(h.values()) and (depth_ok or not depth_required), "sensors": {**h, "depth": depth_ok},
                 "depth_enabled": source is not None, "depth_required": depth_required,
+                "gemini_rgbd": getattr(source, "rgbd_status", lambda: {"enabled": False})(),
                 "capture_mode": "simulated" if rig.boson_info.get("part_number") == "FAKE" else "live",
                 "boson_part": rig.boson_info.get("part_number"),
                 "ffc_mode": "manual" if rig.ffc_manual else "auto",
@@ -376,6 +406,7 @@ def main():
     ap.add_argument("--fake-rig", action="store_true", help="카메라 없이 가짜 영상으로 실행")
     ap.add_argument("--blur-faces", default="", help="가짜 모드에서 흐리게 만들 면 (예: A)")
     ap.add_argument("--depth", action="store_true", help="선택 Orbbec 깊이 취득(기본 꺼짐)")
+    ap.add_argument("--depth-rgb", action="store_true", help="Gemini 자체 color/depth pair 추가(Arducam 정합 아님)")
     ap.add_argument("--require-depth", action="store_true", help="깊이 누락/무효 시 측정 불가 처리")
     args = ap.parse_args()
     w, h = map(int, args.vis_res.lower().split("x"))
@@ -387,9 +418,12 @@ def main():
         factory = lambda: Rig(cfg)  # noqa: E731
     if args.require_depth and not args.depth:
         ap.error("--require-depth는 --depth와 함께 사용")
+    if args.depth_rgb and not args.depth:
+        ap.error("--depth-rgb는 --depth와 함께 사용")
     if args.fake_rig and args.depth:
         ap.error("--fake-rig에서는 실제 --depth를 열지 않음. 모의 depth는 테스트 주입으로 사용")
-    uvicorn.run(create_app(factory, OrbbecDepthSource if args.depth else None, args.require_depth),
+    depth_factory = (lambda: OrbbecDepthSource(rgb_pair=args.depth_rgb)) if args.depth else None
+    uvicorn.run(create_app(factory, depth_factory, args.require_depth),
                 host=args.host, port=args.port)
 
 

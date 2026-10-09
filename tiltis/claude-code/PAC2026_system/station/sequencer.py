@@ -315,6 +315,7 @@ class Sequencer:
             if not plan2.get("ok"):
                 raise SequenceError(f"재집기 계획 실패: {plan2.get('reason')}")
             plan = plan2
+            loc = loc2
             self._vision_lift = dict(plan["lift"])
             self._move_joints("vision_approach", plan["approach"])
             self._verify_before_grasp(loc2)
@@ -322,6 +323,11 @@ class Sequencer:
             self._grip("closed")
             self._check_grasp("pick")
             self._emit("vision:regrasp", "end")
+        bind = getattr(self.picker, 'capture_held_box', None)
+        if bind is not None:
+            held = self._step('vision:held_box', lambda: bind(loc, self.robot.current_joints()))
+            if not isinstance(held, dict) or held.get('ok') is not True:
+                raise SequenceError(f"집은 상자 자세 확인 실패: {(held or {}).get('reason')}")
         self._move_joints("vision_lift", plan["lift"])
 
     def _grip(self, state: str) -> None:
@@ -479,6 +485,12 @@ class Sequencer:
                    destination=copy.deepcopy(self._cur["destination"]))
         self._cur["routing_status"] = "in_progress"
         self._move(SORTING_ZONES[bin_name]["pose"])
+        release = getattr(self.picker, 'verify_at_release', None)
+        if release is not None:
+            check = self._step('vision:release_check', lambda: release(bin_name, self.robot.current_joints()))
+            self._cur['release_check'] = check
+            if not isinstance(check, dict) or check.get('ok') is not True:
+                raise SequenceError(f"놓기 자세 확인 실패: {(check or {}).get('reason')}")
         self._grip("open")
         self._cur["placed_bin"] = bin_name
         self._cur["routing_status"] = "placed"
