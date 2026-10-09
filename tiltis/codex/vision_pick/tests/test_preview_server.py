@@ -70,3 +70,27 @@ def test_summary_connection_failure_does_not_return_cached_decision(tmp_path, mo
     monkeypatch.setattr(httpx, 'get', unavailable)
     client = TestClient(create_preview_app(tmp_path))
     assert client.get('/api/inspection-summary').status_code == 503
+
+
+def test_camera_outlines_one_table_box_without_polling_robot_or_depth_locator(tmp_path, monkeypatch):
+    import cv2
+    import httpx
+    import numpy as np
+    image = np.full((360, 1506, 3), 225, np.uint8)
+    brown = tuple(int(v) for v in cv2.cvtColor(np.uint8([[[15, 115, 180]]]), cv2.COLOR_HSV2BGR)[0, 0])
+    cv2.rectangle(image, (200, 190), (280, 270), brown, -1)
+    cv2.rectangle(image, (40, 40), (120, 100), brown, -1)
+    ok, jpeg = cv2.imencode('.jpg', image)
+    assert ok
+    calls = []
+    def get(url, **kwargs):
+        calls.append(url)
+        assert url.endswith('/live.jpg')
+        return httpx.Response(200, content=jpeg.tobytes(), request=httpx.Request('GET', url))
+    monkeypatch.setattr(httpx, 'get', get)
+    client = TestClient(create_preview_app(tmp_path))
+    result = client.get('/camera.jpg')
+    assert result.status_code == 200
+    assert result.headers['x-box-candidates'] == '1'
+    assert result.headers['x-overlay-role'] == 'display-only-single-rgb-box'
+    assert calls == ['http://127.0.0.1:8001/live.jpg']

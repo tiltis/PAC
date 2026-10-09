@@ -1,8 +1,8 @@
-"""RGB-only red outlines for the existing three-camera display.
+"""A single RGB display outline for the existing three-camera display.
 
-These are approximate cardboard regions, not SAM detections, inspection results
-or grasp targets. Touching boxes may share an outline. No camera is opened and
-no pixels from the thermal/depth panels are used to infer an RGB location.
+This is an approximate display selection, not a calibrated association with the
+depth pick target. Only an unambiguous box in the visible work area is outlined.
+No camera is opened and no depth pixels are treated as Arducam coordinates.
 """
 from __future__ import annotations
 
@@ -12,6 +12,22 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+DISPLAY_WORKSPACE_ROI = (0.0, 0.4, 1.0, 1.0)
+
+
+@lru_cache(maxsize=1)
+def _zone_hulls():
+    """Reuse peer color regions on this RGB frame, without depth projection."""
+    path = (Path(__file__).resolve().parents[2] / "claude-code" /
+            "PAC2026_system" / "sensor" / "zones.py")
+    spec = importlib.util.spec_from_file_location("_pac_overlay_zones", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Zone display rules unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.paper_hulls
 
 
 @lru_cache(maxsize=1)
@@ -87,8 +103,39 @@ def cardboard_outlines(rgb_bgr):
     return sorted(outlines, key=lambda p: cv2.boundingRect(p)[0])
 
 
-def annotate_collage(collage_bgr, rgb_width=480):
-    """Return a copied BGR collage and region count; only its RGB panel changes.
+def single_target_outline(rgb_bgr, workspace_roi=DISPLAY_WORKSPACE_ROI):
+    """Return zero or one display contour; never pick the largest of many.
+
+    The normalized ROI excludes the background above this fixed camera's table.
+    It is a display filter, not a robot workspace limit. Boxes resting in the
+    red/blue destination papers are excluded using the existing color detector.
+    Without Arducam/depth calibration, multiple eligible boxes remain ambiguous.
+    """
+    roi = np.asarray(workspace_roi, dtype=float)
+    if (roi.shape != (4,) or not np.isfinite(roi).all() or
+            not (0 <= roi[0] < roi[2] <= 1 and 0 <= roi[1] < roi[3] <= 1)):
+        raise ValueError("Expected normalized display ROI [x0, y0, x1, y1]")
+    height, width = rgb_bgr.shape[:2]
+    x0, y0, x1, y1 = roi * (width, height, width, height)
+    # Mask the background before finding papers: a robot or poster in the
+    # background must not expand a destination region on the table.
+    table = np.zeros_like(rgb_bgr)
+    table[int(y0):int(y1), int(x0):int(x1)] = rgb_bgr[int(y0):int(y1), int(x0):int(x1)]
+    zones = _zone_hulls()(table)
+    eligible = []
+    for outline in cardboard_outlines(rgb_bgr):
+        x, y, w, h = cv2.boundingRect(outline)
+        if not (x >= x0 and y >= y0 and x + w <= x1 and y + h <= y1):
+            continue
+        foot = (float(x + w / 2), float(y + h - 1))
+        if any(cv2.pointPolygonTest(hull, foot, False) >= 0 for hull in zones.values()):
+            continue
+        eligible.append(outline)
+    return eligible if len(eligible) == 1 else []
+
+
+def annotate_collage(collage_bgr, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI):
+    """Return a copied BGR collage and 0/1 count; only its RGB panel changes.
 
     The sensor live.jpg currently puts the 480x360 Arducam panel first. Callers
     must explicitly pass a different width if that server layout changes.
@@ -102,15 +149,15 @@ def annotate_collage(collage_bgr, rgb_width=480):
         raise ValueError("Expected a uint8 BGR collage with the full RGB panel")
     result = collage_bgr.copy()
     rgb = result[:, :rgb_width]
-    outlines = cardboard_outlines(rgb)
+    outlines = single_target_outline(rgb, workspace_roi=workspace_roi)
     thickness = max(2, int(round(rgb_width / 240)))
     # Drawing into the panel view clips even antialiased strokes at its border.
     cv2.polylines(rgb, outlines, True, (0, 0, 255), thickness, cv2.LINE_AA)
     return result, len(outlines)
 
 
-def annotate_jpeg(jpeg_bytes, rgb_width=480):
-    """Return (display JPEG bytes, approximate RGB region count).
+def annotate_jpeg(jpeg_bytes, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE_ROI):
+    """Return (display JPEG bytes, outlined box count: 0 or 1).
 
     Invalid images raise ValueError so the caller can report an unavailable
     preview. A valid frame with no candidate is returned byte-for-byte unchanged.
@@ -120,7 +167,7 @@ def annotate_jpeg(jpeg_bytes, rgb_width=480):
     image = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("Could not decode preview image")
-    annotated, count = annotate_collage(image, rgb_width=rgb_width)
+    annotated, count = annotate_collage(image, rgb_width=rgb_width, workspace_roi=workspace_roi)
     if not count:
         return bytes(jpeg_bytes), 0
     ok, encoded = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 92])

@@ -347,3 +347,11 @@ Codex 전용 vision_pick/taught_approach.py, retained_robot.py, taught_station.p
 실제 8000 하드웨어 연결·카메라3대 수신·taught_home_lower 모드·저장 HOME/LOWER 일치를 확인하고 검사 시작 버튼이 있는 UI를 열었다. Codex는 검사 시작을 누르지 않았다. 사용자가 직접 실행한 초기 시도는 상자344mm 거리제한으로 실패했고, 상자를 옮긴 후 시도는 비전416.4mm IK 성공 뒤 home_start 실제도달 위치오차12.94mm/방향2.78도로 하강 전에 실패했다. 관절 안정화 허용5도와 Cartesian 허용5mm가 다르므로 추가대기만으로 해결됨을 주장하지 않으며 도달 검사를 완화하지 않았다. 가까운 상자 수정 배포 때 실행 중을 감지해 첫 재시작은 취소했고 idle/error가 된 뒤 토크 유지 방식으로 재시작했다. 아직 가르친 LOWER의 실제 도달/집기/검사/분류 완주를 확인하지 않았다.
 
 현재 실행 진입점은 Codex vision_pick/taught_station.py(환경 PAC_SYSTEM_DIR=C:/PAC2026_system, ROBOT_PORT=COM8, PICK_MODE=vision, 기존 현장 환경 재사용)다. 일반 station/app.py로 시작하면 이 별도 모드가 적용되지 않는다. 저장 파일 변경은 실행 전409로 막고 새 검증/재연결이 필요하다. 기존8003 티칭서버는 종료됐고8000만 COM8 소유. 현장 원본 파일 전체를 덮어쓰지 않았다.
+
+## 2026-10-10 — RGB 테두리를 현재 작업대 상자 하나로 제한
+
+사용자가 현재 대상 상자 하나만 빨간 테두리로 표시하도록 요청했다. 기존 box_overlay는 현장 RGB에서 상자 외 사람/의자까지 갈색 후보 4개를 표시했다. codex/vision_pick/box_overlay.py는 정규화 화면 ROI [0,0.4,1,1] 안에 완전히 들어온 후보 중 빨강/파랑 분류 종이 위 후보를 제외하고, 정확히 하나 남을 때만 윤곽을 그린다. 여러 후보에서 가장 큰 물체를 임의로 고르지 않으며 0개/복수이면 표시하지 않는다. 화면 ROI는 고정 카메라 배경 제거용이며 로봇 작업 범위 변경이 아니다. 단안 색 기반 표시라 흰 상자/맞붙은 상자/가림의 일반적 식별을 보장하지 않는다.
+
+상대 live sensor/zones.py의 paper_hulls를 재사용했다. 이 파일이 공유 소스에 없어서 C:/PAC2026_system/sensor/zones.py를 수정 없이 claude-code/PAC2026_system/sensor/zones.py에 복사했다. 분류 종이 검출에만 사용하며 ProcessedMemory를 생성하거나 /object/locate를 화면 갱신에 호출하지 않는다. Arducam↔깊이 카메라 object_map.json과 배경 보정이 없어 실제 로봇 선택 ID와 RGB 윤곽을 연결했다고 주장하지 않는다. 후보가 여러 개인 장면의 정확한 타깃 표시는 추후 카메라 대응 보정/선택 메타데이터가 필요하다.
+
+preview_server.py 안내/헤더 변경, overlay 및 preview API 테스트 합계 30 passed, 1 warning (2.43s). 기존 영상은 4개→가운데 상자1개로 줄었고 입력/열화상/깊이 불변, 분류 구역 배제, 복수 후보 무표시를 검증했다. 실행 중 8002 preview PID3576만 확인 후 재시작해 새 listener32224, /camera.jpg HTTP200 X-Box-Candidates=1 확인. 열린8000페이지의 실시간카메라를 켜서 실제표시를 확인했다. 증거 C:/Users/tilti/PAC2026_data/target_overlay_20261010 (before/after/deployed.jpg, single_box_ui.png, preview.log). 로봇/센서 서버를 종료하거나 이동 명령을 보내지 않았다. 종료 확인 시8001센서정상이나8000리스너는 사라져 검사UI에 연결끊김 표시가 있었다. 원인은 이번 표시작업에서 확인되지 않았고 로봇 서버를 임의로 재시작하지 않았다. 기존 HOME 도달오차 미해결 상태는 그대로다.

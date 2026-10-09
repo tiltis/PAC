@@ -19,7 +19,7 @@ PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewp
 <main><h1>PAC — 카메라 · 검사 결과</h1>
 <p>RGB / 열화상 / 깊이 실시간 화면 · <a href="http://127.0.0.1:8000/">검사 스테이션 열기</a></p>
 <img id="cam" alt="RGB · 열화상 · 깊이 실시간 카메라" src="/camera.jpg">
-<p class="note" id="cameraNote">빨간 테두리: RGB에서 찾은 갈색 상자 후보 · 판정 색상과 별개입니다.</p>
+<p class="note" id="cameraNote">빨간 테두리: 작업대의 상자 1개 · 배경과 분류 구역은 제외하며, 후보가 여러 개면 표시를 보류합니다. 판정 색상과 별개입니다.</p>
 <section class="card" aria-live="polite"><h2>최근 검사 판정</h2><p class="note" id="stationState">스테이션 연결 중…</p>
 <details id="stationErrorBox" hidden><summary>현재 실행 오류 상세</summary><p class="note" id="stationError"></p></details>
 <div id="decision" class="decision">결과 확인 중…</div><ul id="decisionReasons"></ul>
@@ -33,7 +33,7 @@ PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewp
 <script src="/inspection-presentation.js"></script><script>
 const cam=document.getElementById('cam');
 function nextCamera(){cam.src='/camera.jpg?t='+Date.now()}
-cam.onload=()=>{document.getElementById('cameraNote').textContent='빨간 테두리: RGB에서 찾은 갈색 상자 후보 · 판정 색상과 별개입니다.';setTimeout(nextCamera,800)};
+cam.onload=()=>{document.getElementById('cameraNote').textContent='빨간 테두리: 작업대의 상자 1개 · 배경과 분류 구역은 제외하며, 후보가 여러 개면 표시를 보류합니다. 판정 색상과 별개입니다.';setTimeout(nextCamera,800)};
 cam.onerror=()=>{document.getElementById('cameraNote').textContent='카메라 연결 확인 중…';setTimeout(nextCamera,2000)};
 async function check(){result.textContent='깊이 측정 중…';try{let r=await fetch('/api/preview');result.textContent=JSON.stringify(await r.json(),null,2)}catch(e){result.textContent=String(e)}}
 async function refreshDecision(){
@@ -133,7 +133,7 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
             data, count = annotate_jpeg(r.content)
             return Response(data, media_type="image/jpeg", headers={
                 'Cache-Control': 'no-store', 'X-Box-Candidates': str(count),
-                'X-Overlay-Role': 'display-only-rgb-cardboard'})
+                'X-Overlay-Role': 'display-only-single-rgb-box'})
         except Exception as e:
             raise HTTPException(503, f"Camera preview unavailable: {type(e).__name__}")
 
