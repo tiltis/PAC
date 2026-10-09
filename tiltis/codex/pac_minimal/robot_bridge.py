@@ -162,6 +162,10 @@ class Bridge:
                 return False
             observed_end = self.clock()
             dt = min(.05, max(0., observed_end-self.last_step))
+            # arm() and step() can share a Windows clock tick. No time budget
+            # means no command; it is not a failed motion validation.
+            if dt == 0:
+                return True
             target = self.last_state['position_m']
             delta = [b-a for a,b in zip(self.commanded, target)]
             dist = math.sqrt(sum(x*x for x in delta))

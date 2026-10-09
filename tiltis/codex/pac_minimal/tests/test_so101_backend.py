@@ -107,6 +107,21 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(bridge.enabled)
         self.assertEqual(self.sdk.sent[-1],self.sdk.get_observation())
 
+    def test_arm_and_step_same_tick_preserves_armed_sdk_bridge(self):
+        w = Workspace(x=(.25,.35),y=(-.02,.02),z=.2,profile='commissioned')
+        now = [10.]
+        bridge = Bridge(self.backend,clock=lambda:now[0],workspace=w)
+        state = dict(position_m=[.31,0.,.2],motion_enabled=True,frame_id=1,
+                     frame_age_s=0.,coordinate_frame='robot_base',units='m',workspace=w.metadata())
+        self.assertTrue(bridge.receive(state,now[0]))
+        self.assertTrue(bridge.arm())
+        self.assertTrue(bridge.step())
+        self.assertTrue(bridge.enabled)
+        self.assertEqual(self.sdk.sent, [])
+        now[0] += .04
+        self.assertTrue(bridge.step())
+        self.assertEqual(len(self.sdk.sent), 1)
+
     def test_sdk_clipping_configuration_rejected(self):
         self.sdk.config = SimpleNamespace(use_degrees=True,max_relative_target=1.)
         with self.assertRaisesRegex(ValueError,'clipping'):

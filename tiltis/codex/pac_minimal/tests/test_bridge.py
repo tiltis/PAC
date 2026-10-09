@@ -28,6 +28,15 @@ class BridgeTests(unittest.TestCase):
         self.assertIn('action_sent',row)
         self.assertTrue(row['mock'])
 
+    def test_same_clock_tick_skips_command_without_disabling(self):
+        self.assertTrue(self.b.step())
+        self.assertTrue(self.b.enabled)
+        self.assertEqual(self.backend.actions, [])
+        self.assertEqual(self.backend.holds, 0)
+        self.now += .04
+        self.assertTrue(self.b.step())
+        self.assertEqual(len(self.backend.actions), 1)
+
     def test_false_holds_and_latches(self):
         self.assertFalse(self.b.receive(dict(self.state,motion_enabled=False),self.now))
         self.assertEqual(self.backend.holds,1)

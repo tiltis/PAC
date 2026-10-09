@@ -54,6 +54,8 @@ MediaPipe의 기존 solutions API를 사용하는 Python 3.10 서버다.
   신선도를 갱신하지 않는다. frame ID 감소는 서버 재시작으로 보고 정지한다.
 - Windows에서 같은 monotonic clock tick을 공유하는 입력은 이동 예산 0으로 처리한다.
   capture timestamp가 역행하면 수동 재활성화가 필요한 정지 상태로 전환한다.
+- bridge의 arm과 첫 step이 같은 tick이면 SDK 명령을 건너뛰고 활성화를 유지한다.
+  이후 양의 시간 간격에서 제어를 재개하며 입력 watchdog은 계속 적용한다.
 
 ## 작업 범위 설정
 
@@ -131,10 +133,11 @@ mock=true 및 synthetic=true 데이터는 실측/학습 데이터로 취급하�
 
 ## 이 노트북 검증 결과 (2026-10-09)
 
-- 별도 Python 3.10.19 환경에서 자동 테스트 **48개 통과**.
+- 별도 Python 3.10.19 환경에서 자동 테스트 **50개 통과**.
   좌표/속도, API, watchdog, 느린 IK/충돌 검사 결과 취소,
   중복/오래된 프레임, 재활성화, hold 실패, SDK 단위/IK 잔차/자세/충돌 검증 차단,
   가상 범위의 실기 사용 차단, Windows clock tick, 실제 TCP HTTP 모의 연결을 검증했다.
+  초기 48개에 bridge/SDK의 arm 직후 동일 tick 회귀 테스트 2개를 추가했다.
 - 120프레임 모의 재생에서 120명령, 손 미검출 후 hold 1회 및 수동 재활성화 확인.
 - MediaPipe 0.10.21 / OpenCV 4.11.0로 웹캠 640×480의 30프레임 처리 성공.
   마지막 측정에서 30프레임 모두 손이 검출됐다. 장시간 추적 정확도 검증은 아니다.
@@ -170,5 +173,6 @@ MediaPipe graph 로딩이 실패했다. 같은 버전의 ASCII 경로 환경에�
 과거 클라우드 ZIP 자체와 `PAC_2026_existing_code.patch`는 현재 폴더에 없다.
 클라우드의 /workspace/scratch 경로는 사용하지 않았다. 기존 ZIP 패치는 적용하지 않았다.
 다른 PAC 검사 시스템의 station/sensor 코드는 변경하지 않았다.
-원본 비교용 `PAC_2026_local_changes.patch`가 제공되면 이는 현재 로컬 버전의
-검토용 차이이며 과거 ZIP에서 받은 패치가 아니다. 이 폴더에 다시 적용하지 않는다.
+원본 비교용 `PAC_2026_local_changes.patch`는 GitHub 업로드 전 초기 노트북 작업본의
+검토용 snapshot이며 과거 ZIP에서 받은 패치가 아니다. 이후 수정은 Git 커밋 차이로
+검토한다. 이 폴더에 패치를 다시 적용하지 않는다.

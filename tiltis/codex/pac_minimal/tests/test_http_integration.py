@@ -51,6 +51,8 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertTrue(self.receive(), self.bridge.reason)
         self.assertTrue(self.bridge.arm())
         for i in range(5):
+            # Distinct synthetic camera frames need an actual motion interval.
+            time.sleep(.04)
             self.controller.update((.8,.2),1,time.monotonic())
             self.assertTrue(self.receive(), (i, self.bridge.reason, self.controller.state()))
             self.assertTrue(self.bridge.step())

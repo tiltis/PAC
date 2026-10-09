@@ -15,6 +15,6 @@
 
 ## 다음 작업
 
-Claude Code 2.1.263의 읽기 전용 리뷰를 실제 실행했으나 OAuth 인증 만료로 실패했다. [실행 기록](REVIEW_STATUS.md)에 오류와 재개 방법을 남겼다. Claude가 코드를 검토했다고 주장하지 않는다.
+Claude Code 2.1.263 첫 리뷰는 OAuth 인증 만료로 실패했다. 이후 재인증과 실제 API 응답을 확인했고, 읽기 전용 교차 리뷰를 다시 실행했다. [실행 기록](REVIEW_STATUS.md)에 인증 복구를 남겼다. 완료된 리뷰 결과와 Codex 반영 근거를 기록한다.
 
 Codex의 [HANDOFF](../codex/HANDOFF.md), `pac_minimal/robot_bridge.py`, `so101_backend.py`, 관련 테스트를 검토한다. 손목과 검사 흐름은 별도로 실행하고, 적합한 SDK·URDF·정지 개선만 근거를 기록하며 재사용한다. 실제 연결은 사용자 모델·포트 정보와 현장 검증 후 진행한다.
