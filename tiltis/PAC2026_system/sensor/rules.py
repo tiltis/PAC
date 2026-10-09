@@ -1,0 +1,132 @@
+"""포장 검사 규칙: 테이프 붙임 여부(RGB, 기본 초록) + 내부 냉매 유무(열화상).
+
+로봇이 상자를 정해진 자세(면 A/B)로 보여 주므로 화면 속 위치가 거의 같다. 그래서 위치를 영역(ROI)으로 고정한다.
+- 테이프: 영역 안 테이프 색 픽셀 비율 ≥ fill_min이면 붙어 있음. 색은 설정 "tape_color"
+    - 초록(기본, 권장): 색상 H 35~95, 채도 ≥ 80, 밝기 ≥ 50. 마운자로 상자에 초록 인쇄는 0%(10-06 실측)
+      10-09 시편의 청록 테이프는 H 81~84(채도 156~193, 밝기 84~103)라 상한을 85→95로 넓혔다. 파랑(H≥100)은 여전히 제외
+    - 검정: 밝기 ≤ 80, 채도 ≤ 90. 상자 앞면 진회색 화살표 무늬(면적의 16%)도 검정으로 잡히므로 그 위에는 쓰지 말 것
+- 냉매: 열화상 원시값 중앙값(상자 표면 영역) - 중앙값(기준 패치 영역) = delta.
+        delta ≤ delta_max면 냉매 있음(표면이 차가움). 기준선에서 margin 안이면 판단 보류(review)
+        같은 화면 안의 기준과 빼므로 FFC·예열로 생기는 전체 이동이 지워진다(10-06 측정: 절대값 323 → 차이 22 카운트)
+
+설정: calib/rules.json — rules_calib.py로 영역을 지정하고, 실제 시편(있음/없음)으로 기준값을 맞춘다.
+validated가 true가 아니면 값만 기록하고 판정은 review(사람 확인)로 둔다. 검증 안 된 기준으로 통과시키지 않는다.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+CALIB_DIR = Path(__file__).parent / "calib"
+PATH = CALIB_DIR / "rules.json"
+
+
+def load(path=None):
+    p = Path(path or PATH)
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+def _crop(img, roi):
+    x0, y0, x1, y1 = (int(round(v)) for v in roi)
+    h, w = img.shape[:2]
+    x0, x1, y0, y1 = max(0, x0), min(w, x1), max(0, y0), min(h, y1)
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError(f"영역이 화면 밖: {roi}")
+    return img[y0:y1, x0:x1]
+
+
+GREEN = {"mode": "hue", "h": [35, 95], "s_min": 80, "v_min": 50}
+BLACK = {"mode": "dark", "v_max": 80, "s_max": 90}
+
+
+def tape_fill(vis, roi, color=None):
+    """영역 안 테이프 색 픽셀 비율 0~1. color: GREEN(기본)·BLACK 형식의 dict."""
+    c = color or GREEN
+    hsv = cv2.cvtColor(_crop(vis, roi), cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    if c["mode"] == "dark":
+        m = (V <= c["v_max"]) & (S <= c["s_max"])
+    else:  # OpenCV 색상 H는 0~179
+        m = (H >= c["h"][0]) & (H <= c["h"][1]) & (S >= c["s_min"]) & (V >= c["v_min"])
+    return float(m.mean())
+
+
+def tape_color(cfg):
+    if "tape_color" in cfg:
+        return cfg["tape_color"]
+    if "dark" in cfg:  # 예전 설정(검정)
+        return {"mode": "dark", **cfg["dark"]}
+    return GREEN
+
+
+def coolant_delta(lwir_mean, roi, ref_roi):
+    """상자 표면 - 기준 패치 (원시 카운트). 음수일수록 표면이 차갑다."""
+    return float(np.median(_crop(lwir_mean, roi)) - np.median(_crop(lwir_mean, ref_roi)))
+
+
+def measure(face, vis, lwir_mean, cfg):
+    """이 면에 설정된 항목의 측정값만 계산한다(판정 없음). rules_calib의 기준값 맞추기에도 쓴다."""
+    color = tape_color(cfg)
+    out = {}
+    for t in cfg.get("tapes", []):
+        if t["face"] == face:
+            out[f"tape_{t['id']}_fill"] = round(tape_fill(vis, t["roi_rgb"], color), 4)
+    c = cfg.get("coolant")
+    if c and c.get("face") == face:
+        out["coolant_delta_counts"] = round(coolant_delta(lwir_mean, c["roi_lwir"], c["ref_roi_lwir"]), 1)
+    return out
+
+
+def judge_face(face, vis, lwir_mean, cfg):
+    """(verdict, reasons, features). 이 면에 검사 항목이 없으면 None."""
+    m = measure(face, vis, lwir_mean, cfg)
+    version = cfg.get("version", "tape-coolant-unversioned")
+    validated = cfg.get("validated") is True
+    if not m:
+        if validated and face in cfg.get("faces_without_checks_ok", []):
+            return "no_anomaly", [], {"defect_inspected": True, "defect_rules_version": version, "defect_checks": 0}
+        return None
+    f = dict(m)
+    reasons, uncertain = [], []
+    tapes_here = [t for t in cfg.get("tapes", []) if t["face"] == face]
+    missing_ids = []
+    for t in tapes_here:
+        thr = t.get("fill_min")
+        present = None if thr is None else m[f"tape_{t['id']}_fill"] >= thr
+        f[f"tape_{t['id']}_present"] = present
+        if present is False:
+            reasons.append(f"tape_missing_{t['id']}")
+            missing_ids.append(t["id"])
+        elif present is None:
+            uncertain.append(f"tape_threshold_missing_{t['id']}")
+    if tapes_here:  # 면별 개수 요약: "3개 중 1개 누락" 식으로 화면·기록에 바로 쓰인다
+        f["tape_expected"] = len(tapes_here)
+        f["tape_present_count"] = sum(1 for t in tapes_here if f[f"tape_{t['id']}_present"] is True)
+        f["tape_missing_count"] = len(missing_ids)
+        f["tape_missing_ids"] = missing_ids
+    c = cfg.get("coolant")
+    if c and c.get("face") == face:
+        d, thr, margin = m["coolant_delta_counts"], c.get("delta_max_counts"), c.get("margin_counts", 0)
+        if thr is None:
+            f["coolant_present"] = None
+            uncertain.append("coolant_threshold_missing")
+        elif abs(d - thr) < margin:
+            f["coolant_present"] = None
+            uncertain.append("coolant_uncertain")
+        else:
+            f["coolant_present"] = d <= thr
+            if not f["coolant_present"]:
+                reasons.append("coolant_absent")
+    f.update(defect_rules_version=version, defect_checks=len(m))
+    if not validated:  # 기준값이 실제 시편으로 검증되기 전: 기록만
+        f["defect_inspected"] = False
+        return "review", ["defect_rules_unvalidated"], f
+    f["defect_inspected"] = True
+    if reasons:
+        return "suspect", reasons, f
+    if uncertain:
+        return "review", uncertain, f
+    return "no_anomaly", [], f

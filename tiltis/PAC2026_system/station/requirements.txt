@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+httpx
+pillow
+numpy  # 비전 집기(kinematics, handeye, grasp)
+pytest
+# lerobot는 현장(실기 연결 시)에 공식 SO-101 가이드대로 설치한다. 목업 실행에는 필요 없다.
+#   git clone https://github.com/huggingface/lerobot.git && cd lerobot
+#   pip install -e ".[feetech]"

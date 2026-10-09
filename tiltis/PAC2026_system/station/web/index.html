@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>콜드체인 포장 검사 스테이션</title>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --ink:#1c2530; --mute:#6a7683; --line:#dde3e9;
+          --ok:#1b8a4b; --warn:#c62f2f; --gray:#8a6d00; --blue:#1f5fbf; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:12px; }
+  h1 { font-size:20px; margin:4px 0 12px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; }
+  input { flex:1; min-width:0; font-size:18px; padding:10px; border:1px solid var(--line); border-radius:8px; }
+  button { font-size:16px; padding:10px 14px; border:0; border-radius:8px; background:var(--blue); color:#fff; }
+  button.sec { background:#51606f; }
+  button.danger { background:var(--warn); }
+  button:disabled { opacity:.4; }
+  .ctrl button { flex:1; }
+  .note { color:var(--mute); font-size:12.5px; margin:8px 0 0; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; background:#e8edf2; font-size:14px; }
+  .pill.running { background:#dbe9ff; color:var(--blue); }
+  .pill.done { background:#d9f2e3; color:var(--ok); }
+  .pill.error { background:#fbdcdc; color:var(--warn); }
+  .pill.aborted { background:#eee3b8; color:var(--gray); }
+  .kv { display:flex; justify-content:space-between; gap:8px; padding:3px 0; font-size:15px; }
+  .kv b { font-weight:600; }
+  .faces { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .face { border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
+  .face h3 { margin:0 0 6px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
+  .face img { width:100%; display:block; border-radius:4px; margin-bottom:4px; background:#e8edf2; min-height:40px; }
+  .badge { font-size:13px; padding:2px 8px; border-radius:6px; color:#fff; background:#99a3ad; }
+  .badge.no_anomaly { background:var(--ok); }
+  .badge.suspect { background:var(--warn); }
+  .badge.review { background:var(--gray); }
+  .badge.unmeasurable { background:var(--gray); }
+  .reasons { font-size:12.5px; color:var(--mute); margin:2px 0; word-break:break-all; }
+  .final { font-size:18px; font-weight:700; padding:8px; border-radius:8px; margin-top:8px; text-align:center; color:#fff; background:#99a3ad; }
+  .final.review { background:var(--gray); }
+  .final.no_anomaly { background:var(--ok); } .final.suspect { background:var(--warn); } .final.unmeasurable { background:var(--gray); }
+  .err { color:var(--warn); font-weight:600; margin-top:6px; word-break:break-all; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:left; padding:5px 4px; border-bottom:1px solid var(--line); }
+  .scroll { overflow-x:auto; }
+  a { color:var(--blue); }
+  @media (max-width:420px) { .face img { min-height:30px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>콜드체인 포장 검사 스테이션</h1>
+
+  <div class="card">
+    <div class="row">
+      <input id="specimen" placeholder="시료 ID (예: S01)" autocomplete="off">
+      <button id="start">검사 시작</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="session" placeholder="세션 이름" value="demo" style="font-size:15px">
+    </div>
+    <div class="row ctrl" style="margin-top:8px">
+      <button id="pause" class="sec">일시정지 요청</button>
+      <button id="resume" class="sec">재개</button>
+      <button id="abort" class="danger">중단</button>
+    </div>
+    <p class="note">일시정지·중단은 소프트웨어 요청이며 비상정지가 아니다. 즉시 멈춰야 하면 로봇 전원 스위치를 끈다.</p>
+  </div>
+
+  <div class="card">
+    <div class="kv"><span>상태</span><span><span id="state" class="pill">대기</span> <span id="paused"></span></span></div>
+    <div class="kv"><span>현재 단계</span><b id="step">-</b></div>
+    <div class="kv"><span>시료</span><b id="spec">-</b></div>
+    <div class="kv"><span>재촬영</span><b id="retakes">0 / 1</b></div>
+    <div class="kv"><span>총 소요 시간</span><b id="elapsed">-</b></div>
+    <div class="kv"><span>센서</span><b id="sensor">-</b></div>
+    <div id="error" class="err" hidden></div>
+    <div id="final" class="final" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>실시간 카메라 <button id="liveBtn" type="button" style="font-size:13px;padding:4px 10px;margin-left:8px">켜기</button></h2>
+    <div style="font-size:13px;color:#666">RGB · 열화상 · 깊이(센서에서 켠 경우). 시료 ID를 넣으면 마커 일치 여부를 함께 보여 준다.</div>
+    <img id="live" alt="실시간 카메라" hidden style="width:100%;margin-top:8px;border-radius:8px;background:#222">
+  </div>
+
+  <div class="card">
+    <h2>면별 검사 결과</h2>
+    <div class="faces">
+      <div class="face" id="faceA"></div>
+      <div class="face" id="faceB"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>기록 <a href="/api/runs.csv" style="font-size:13px;font-weight:400">CSV</a></h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>시료</th><th>판정</th><th>구역</th><th>재촬영</th><th>시간</th><th>상태</th></tr></thead>
+        <tbody id="hist"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const STEP = { home:'홈 위치', pick_approach:'집기 접근', pick:'집기 위치', lift:'들어올리기',
+  face_A:'A면 제시', face_B:'B면 제시', bin_ok:'정상 구역으로 이동', bin_human:'사람 확인 구역으로 이동' };
+const VERDICT = { review:'미판정·검토', no_anomaly:'이상 미검출', suspect:'이상 의심', unmeasurable:'측정 불가' };
+const BIN = { ok:'정상 구역', human:'사람 확인 구역' };
+const STATE = { idle:'대기', running:'실행 중', saving:'기록 저장 중', done:'완료', error:'오류', aborted:'중단됨' };
+const REASON = { rgb_blur:'RGB 흐림', occluded:'가림', pose_out_of_range:'자세 이탈',
+  lid_gap_rgb:'뚜껑 틈(RGB)', lwir_local_contrast:'열화상 국소 대비',
+  defect_rules_unavailable:'결함 판정 근거 없음', simulated_inspection:'모의 검사 결과',
+  rgb_dark:'RGB 어두움', lwir_frozen:'열화상 정지', lwir_saturated:'열화상 포화',
+  defect_rules_unvalidated:'규칙 기준값 미검증(기록만)', coolant_absent:'냉매 없음', coolant_uncertain:'냉매 판단 보류',
+  coolant_threshold_missing:'냉매 기준값 없음' };
+// tape_missing_T1 / tape_threshold_missing_T1 같은 동적 이름은 아래에서 변환
+const REASON_DYN = [[/^tape_missing_(\w+)$/, '테이프 누락 $1'], [/^tape_threshold_missing_(\w+)$/, '테이프 기준값 없음 $1']];
+function reasonLabel(r) {
+  if (REASON[r]) return REASON[r];
+  for (const [re, tpl] of REASON_DYN) { const m = r.match(re); if (m) return tpl.replace('$1', m[1]); }
+  return r;
+}
+Object.assign(REASON, { depth_missing:'뎁스 프레임 없음', depth_invalid:'뎁스 무효값', depth_stale:'오래된 뎁스 프레임',
+  depth_before_trigger:'촬영 요청 이전 뎁스', depth_clock_mismatch:'뎁스 시계 불일치',
+  depth_insufficient_valid_pixels:'뎁스 유효 픽셀 부족', sensor_time_skew:'센서 시각 차 초과',
+  sensor_timestamp_missing:'센서 취득 시각 없음', frame_outside_trigger_window:'촬영 요청 범위 밖 프레임',
+  sensor_association_unverified:'동일 시료 연결 조건 미확인' });
+
+function stepLabel(s) {
+  if (!s) return '-';
+  let m;
+  if ((m = s.match(/^move:(.+)$/))) return '이동: ' + (STEP[m[1]] || m[1]);
+  if ((m = s.match(/^grip:(.+)$/))) return m[1] === 'open' ? '그리퍼 열기' : '그리퍼 닫기';
+  if ((m = s.match(/^settle:(.+)$/))) return m[1] + '면 안정화 대기';
+  if ((m = s.match(/^inspect:(.)#(\d)$/))) return m[1] + '면 검사' + (m[2] === '1' ? ' (재촬영)' : '');
+  return s;
+}
+const fmtMs = ms => (ms == null ? '-' : (ms / 1000).toFixed(1) + ' 초');
+
+async function api(path, method) {
+  const r = await fetch(path, method ? { method, headers: {'Content-Type':'application/json'} } : undefined);
+  return r;
+}
+async function post(path, body) {
+  const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {}) });
+  if (!r.ok) { let t = ''; try { t = (await r.json()).detail; } catch (e) {} alert(t || ('오류 ' + r.status)); }
+}
+
+$('start').onclick = () => {
+  const id = $('specimen').value.trim();
+  if (!id) { alert('시료 ID를 입력하세요'); return; }
+  post('/api/run', { specimen_id: id, session: $('session').value.trim() || 'demo' });
+};
+$('pause').onclick = () => post('/api/pause');
+// 실시간 카메라: 이전 이미지가 다 받아진 뒤에 다음 요청 (요청이 쌓이지 않게)
+let liveOn = false;
+function liveNext() {
+  if (!liveOn) return;
+  $('live').src = '/sensor-live?specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
+}
+$('live').onload = () => setTimeout(liveNext, 300);
+$('live').onerror = () => setTimeout(liveNext, 2000);
+$('liveBtn').onclick = () => {
+  liveOn = !liveOn;
+  $('liveBtn').textContent = liveOn ? '끄기' : '켜기';
+  $('live').hidden = !liveOn;
+  liveNext();
+};
+$('resume').onclick = () => post('/api/resume');
+$('abort').onclick = () => { if (confirm('이 실행을 중단할까요? (팔은 현재 위치에서 멈춥니다)')) post('/api/abort'); };
+
+// 면 카드: 해당 면의 가장 최근 시도를 보여 준다
+function setImg(img, path) {
+  const url = path ? '/sensor-img?path=' + encodeURIComponent(path) : '';
+  if (img.dataset.src !== url) { img.dataset.src = url; if (url) img.src = url; else img.removeAttribute('src'); }
+}
+function renderFace(el, face, inspections) {
+  const list = inspections.filter(i => i.face === face);
+  if (!el.dataset.built) {
+    el.innerHTML = '<h3><span></span><span class="badge">-</span></h3><div class="reasons"></div>' +
+      '<img alt="RGB"><img alt="열화상"><div class="measurements note"></div>';
+    el.dataset.built = '1';
+  }
+  const [title, badge] = el.querySelectorAll('h3 span');
+  const reasons = el.querySelector('.reasons');
+  const imgs = el.querySelectorAll('img');
+  const measurements = el.querySelector('.measurements');
+  measurements.textContent = '';
+  const last = list[list.length - 1];
+  title.textContent = face + '면' + (list.length > 1 ? ' (재촬영)' : '');
+  if (!last) { badge.textContent = '대기'; badge.className = 'badge'; reasons.textContent = ''; setImg(imgs[0]); setImg(imgs[1]); return; }
+  if (last.status !== 'ok') { badge.textContent = '오류'; badge.className = 'badge suspect'; reasons.textContent = last.error || ''; setImg(imgs[0]); setImg(imgs[1]); return; }
+  badge.textContent = VERDICT[last.verdict] || last.verdict;
+  badge.className = 'badge ' + last.verdict;
+  const first = list.length > 1 ? '1차: ' + (VERDICT[list[0].verdict] || list[0].verdict) + ' / ' : '';
+  let reasonText = (last.reasons || []).map(reasonLabel).join(', ') || '근거 없음';
+  const ft = last.features || {};
+  if (ft.tape_expected) {  // 면별 테이프 개수: "테이프 2/3 (누락 T2)"
+    const miss = (ft.tape_missing_ids || []).length ? ' (누락 ' + ft.tape_missing_ids.join(', ') + ')' : '';
+    const cnt = (ft.tape_present_count == null ? '?' : ft.tape_present_count) + '/' + ft.tape_expected;
+    reasonText = '테이프 ' + cnt + miss + ' · ' + reasonText;
+  }
+  if (ft.coolant_present !== undefined) reasonText += ' · 냉매 ' + (ft.coolant_present === true ? '있음' : ft.coolant_present === false ? '없음' : '판단보류');
+  reasons.textContent = first + reasonText;
+  setImg(imgs[0], last.images && last.images.rgb);
+  setImg(imgs[1], last.images && last.images.lwir);
+  const data = last.sensor_data || {};
+  const parts = [];
+  if (data.simulated) parts.push('모의 입력');
+  if (data.lwir) parts.push('열화상: 원시값 상대 비교(대상 온도 아님)');
+  if (data.depth) {
+    const d = data.depth;
+    const depthStatus = { disabled:'미사용', missing:'프레임 없음', stale:'오래된 프레임', invalid:'무효', valid:'수신' };
+    parts.push('뎁스: ' + (depthStatus[d.status] || d.status));
+    if (d.status === 'valid' && d.median_mm != null) parts.push((d.roi_xyxy ? '설정한 깊이 ROI' : '전체 깊이 프레임') +
+      ' 중앙값 ' + d.median_mm + ' mm');
+  }
+  if (data.association) parts.push(data.association.status === 'linked_under_stationary_specimen_precondition'
+    ? '고정된 한 시료 조건에서 연결' : '시료 ID로 기록 연결 · 동일 물체 조건 별도 확인');
+  measurements.textContent = parts.join(' / ');
+}
+
+async function poll() {
+  try {
+    const s = await (await api('/api/status')).json();
+    const run = s.current || s.last_result;
+    const st = s.state;
+    $('state').textContent = STATE[st] || st;
+    $('state').className = 'pill ' + st;
+    $('paused').textContent = s.paused ? '(일시정지 요청됨)' : '';
+    $('step').textContent = run ? (st === 'running' ? stepLabel(run.step) : (st === 'idle' ? '-' : '종료')) : '-';
+    $('spec').textContent = run ? run.specimen_id : '-';
+    $('retakes').textContent = (run ? run.retakes_used : 0) + ' / 1';
+    $('elapsed').textContent = run ? fmtMs(run.elapsed_ms) : '-';
+    const busy = s.busy ?? (st === 'running' || st === 'saving');
+    $('start').disabled = busy;
+    $('pause').disabled = st !== 'running' || s.paused;
+    $('resume').disabled = st !== 'running' || !s.paused;
+    $('abort').disabled = st !== 'running';
+    const err = $('error');
+    err.hidden = !(run && run.error); err.textContent = run && run.error ? '사유: ' + run.error : '';
+    const fin = $('final');
+    if (run && run.final_verdict) {
+      fin.hidden = false; fin.className = 'final ' + run.final_verdict;
+      fin.textContent = '최종: ' + (VERDICT[run.final_verdict] || run.final_verdict) + ' → 목표 ' + (BIN[run.bin] || run.bin) + ' / 배치 ' + (BIN[run.placed_bin] || '미확인') + ' / 실행 ' + (run.routing_status || '미기록');
+    } else fin.hidden = true;
+    const ins = run ? run.inspections : [];
+    renderFace($('faceA'), 'A', ins);
+    renderFace($('faceB'), 'B', ins);
+    if (st !== lastState) { lastState = st; loadHistory(); }
+  } catch (e) { $('state').textContent = '연결 끊김'; $('state').className = 'pill error'; }
+}
+let lastState = null;
+
+async function loadHistory() {
+  try {
+    const runs = await (await api('/api/runs?limit=30')).json();
+    const tb = $('hist'); tb.textContent = '';
+    for (const r of runs) {
+      const tr = document.createElement('tr');
+      const cells = [r.id, r.specimen_id, VERDICT[r.final_verdict] || '-', (BIN[r.bin] || '-') + ' / 배치 ' + (BIN[r.placed_bin] || '미확인'),
+        r.retakes_used, fmtMs(r.elapsed_ms), STATE[r.state] || r.state];
+      for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
+      tb.appendChild(tr);
+    }
+  } catch (e) {}
+}
+
+async function pollSensor() {
+  try {
+    const h = await (await api('/api/sensor/health')).json();
+    const sensors = h.sensors;
+    $('sensor').textContent = sensors ? ('RGB ' + (sensors.vis ? '수신' : '미수신') +
+      ' · 열화상 ' + (sensors.lwir ? '수신' : '미수신') + ' · 뎁스 ' +
+      (sensors.depth ? '수신' : (h.depth_enabled ? '프레임 없음' : '미사용'))) : (h.ok ? '연결됨' : '연결 안 됨');
+    if (h.capture_mode === 'simulated') $('sensor').textContent = '모의 입력 · ' + $('sensor').textContent;
+    $('sensor').style.color = h.ok ? 'var(--ok)' : 'var(--warn)';
+  } catch (e) { $('sensor').textContent = '확인 불가'; }
+}
+
+setInterval(poll, 500);
+setInterval(pollSensor, 5000);
+poll(); pollSensor(); loadHistory();
+</script>
+</body>
+</html>

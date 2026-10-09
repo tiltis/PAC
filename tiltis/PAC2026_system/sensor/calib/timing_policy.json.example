@@ -1,0 +1,6 @@
+{
+  "validated": false,
+  "source_id": "replace-with-your-capture-session-id",
+  "max_rgb_lwir_skew_s": null,
+  "max_depth_rgb_skew_s": null
+}
