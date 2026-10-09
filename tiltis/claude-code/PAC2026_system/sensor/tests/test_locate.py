@@ -91,3 +91,20 @@ def test_front_face_model_70mm_cube_without_tab():
     Rcw = np.array([[1, 0, 0], [0, np.cos(t), np.sin(t)], [0, -np.sin(t), np.cos(t)]])
     assert np.linalg.norm(np.array(r["top_center_cam_mm"]) - Rcw.T @ np.array([0.0, cam_h - 70.0, 350.0])) < 8
     assert np.linalg.norm(np.array(r["box_center_on_table_cam_mm"]) - Rcw.T @ np.array([0.0, cam_h, 350.0])) < 8
+
+
+def test_front_face_model_picks_candidate_by_height():
+    # 10-09 시편 둘: 흰 70×70×90, 갈색 80×80×45. 높이로 어느 상자인지 고른다
+    cands = [(70, 70, 90), (80, 80, 45)]
+    white = render(cam_h=190.0, box=((-35, 35), (315, 385)), box_h=90.0, tilt_deg=14.0)
+    r = locate.public(locate.locate_box_front_any(white, INTR, cands, tab_height_mm=0, pick_roi=[0, 0, W, H]))
+    assert r["found"] and r["box_mm"] == [70.0, 70.0, 90.0], r
+    assert abs(r["top_height_mm"] - 90) < 6
+    brown = render(cam_h=190.0, box=((-40, 40), (310, 390)), box_h=45.0, tilt_deg=14.0)
+    r = locate.public(locate.locate_box_front_any(brown, INTR, cands, tab_height_mm=0, pick_roi=[0, 0, W, H]))
+    assert r["found"] and r["box_mm"] == [80.0, 80.0, 45.0], r
+    assert abs(r["front_face_len_mm"] - 80) < 8
+    # 둘 다 아닌 상자(60mm 높이 120mm)는 후보별 이유와 함께 거부
+    other = render(cam_h=190.0, box=((-60, 60), (300, 420)), box_h=60.0, tilt_deg=14.0)
+    r = locate.public(locate.locate_box_front_any(other, INTR, cands, tab_height_mm=0, pick_roi=[0, 0, W, H]))
+    assert not r["found"] and r["reason"] == "no_candidate_box_matched" and len(r["candidates"]) == 2

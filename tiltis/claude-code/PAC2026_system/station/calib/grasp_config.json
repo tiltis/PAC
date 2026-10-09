@@ -1,8 +1,11 @@
 {
-  "_note": "2026-10-09 시편: 약 70mm 흰 정육면체(손잡이 없음). 윗면에서 22mm 아래를 집는다. 상자가 바뀌면 sensor/calib/object_config.json의 box_mm도 같이 바꿀 것",
+  "_note": "2026-10-09 시편: 흰 70×70×90, 갈색 80×80×45(손잡이 없음). 집는 깊이 = 상자 높이×0.4를 20~35mm로 자름 → 흰 35mm(z55), 갈색 20mm(z25). 접근·들어올림 20mm. 90mm 상자는 접근 25mm면 수직 도달 한계(약 90mm)를 넘어 역기구학이 안 풀린다",
   "tab_size_mm": [70.0, 70.0],
   "tab_height_mm": 0.0,
-  "grasp_depth_mm": 22.0,
-  "approach_mm": 25.0,
-  "lift_mm": 25.0
+  "grasp_depth_mm": null,
+  "grasp_depth_frac": 0.4,
+  "grasp_depth_min_mm": 20.0,
+  "grasp_depth_max_mm": 35.0,
+  "approach_mm": 20.0,
+  "lift_mm": 20.0
 }

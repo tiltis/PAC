@@ -1,7 +1,0 @@
-{
-  "validated": false,
-  "source_id": "replace-with-your-measured-pose-session-id",
-  "roi_xyxy": null,
-  "distance_mm": null,
-  "min_valid_fraction": null
-}

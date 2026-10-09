@@ -115,7 +115,16 @@ const STATE = { idle:'대기', running:'실행 중', saving:'기록 저장 중',
 const REASON = { rgb_blur:'RGB 흐림', occluded:'가림', pose_out_of_range:'자세 이탈',
   lid_gap_rgb:'뚜껑 틈(RGB)', lwir_local_contrast:'열화상 국소 대비',
   defect_rules_unavailable:'결함 판정 근거 없음', simulated_inspection:'모의 검사 결과',
-  rgb_dark:'RGB 어두움', lwir_frozen:'열화상 정지', lwir_saturated:'열화상 포화' };
+  rgb_dark:'RGB 어두움', lwir_frozen:'열화상 정지', lwir_saturated:'열화상 포화',
+  defect_rules_unvalidated:'규칙 기준값 미검증(기록만)', coolant_absent:'냉매 없음', coolant_uncertain:'냉매 판단 보류',
+  coolant_threshold_missing:'냉매 기준값 없음' };
+// tape_missing_T1 / tape_threshold_missing_T1 같은 동적 이름은 아래에서 변환
+const REASON_DYN = [[/^tape_missing_(\w+)$/, '테이프 누락 $1'], [/^tape_threshold_missing_(\w+)$/, '테이프 기준값 없음 $1']];
+function reasonLabel(r) {
+  if (REASON[r]) return REASON[r];
+  for (const [re, tpl] of REASON_DYN) { const m = r.match(re); if (m) return tpl.replace('$1', m[1]); }
+  return r;
+}
 Object.assign(REASON, { depth_missing:'뎁스 프레임 없음', depth_invalid:'뎁스 무효값', depth_stale:'오래된 뎁스 프레임',
   depth_before_trigger:'촬영 요청 이전 뎁스', depth_clock_mismatch:'뎁스 시계 불일치',
   depth_insufficient_valid_pixels:'뎁스 유효 픽셀 부족', sensor_time_skew:'센서 시각 차 초과',
@@ -189,7 +198,15 @@ function renderFace(el, face, inspections) {
   badge.textContent = VERDICT[last.verdict] || last.verdict;
   badge.className = 'badge ' + last.verdict;
   const first = list.length > 1 ? '1차: ' + (VERDICT[list[0].verdict] || list[0].verdict) + ' / ' : '';
-  reasons.textContent = first + ((last.reasons || []).map(r => REASON[r] || r).join(', ') || '근거 없음');
+  let reasonText = (last.reasons || []).map(reasonLabel).join(', ') || '근거 없음';
+  const ft = last.features || {};
+  if (ft.tape_expected) {  // 면별 테이프 개수: "테이프 2/3 (누락 T2)"
+    const miss = (ft.tape_missing_ids || []).length ? ' (누락 ' + ft.tape_missing_ids.join(', ') + ')' : '';
+    const cnt = (ft.tape_present_count == null ? '?' : ft.tape_present_count) + '/' + ft.tape_expected;
+    reasonText = '테이프 ' + cnt + miss + ' · ' + reasonText;
+  }
+  if (ft.coolant_present !== undefined) reasonText += ' · 냉매 ' + (ft.coolant_present === true ? '있음' : ft.coolant_present === false ? '없음' : '판단보류');
+  reasons.textContent = first + reasonText;
   setImg(imgs[0], last.images && last.images.rgb);
   setImg(imgs[1], last.images && last.images.lwir);
   const data = last.sensor_data || {};

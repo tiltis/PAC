@@ -151,3 +151,22 @@ def test_plan_cube_without_tab_uses_grasp_depth():
     p2 = grasp.plan(loc, HE, cfg=dict(grasp.DEFAULTS, tab_height_mm=20.0, grasp_depth_mm=None))
     T2 = K.SO101().fk(K.from_lerobot(p2["grasp"]))
     assert abs(T2[2, 3] - (0.07 - 0.01)) < 0.002
+
+
+def test_plan_grasp_depth_from_box_height_reaches_both_specimens():
+    # 10-09 시편 둘: 흰 70×70×90(깊이 35mm로 잘림), 갈색 80×80×45(20mm로 올림). 접근 20mm. 로봇 앞 16~24cm 전부 풀려야 한다
+    cfg = dict(grasp.DEFAULTS, tab_height_mm=0.0, grasp_depth_mm=None, grasp_depth_frac=0.4, approach_mm=20.0, lift_mm=20.0)
+    for h_mm, want_depth in ((90.0, 35.0), (45.0, 20.0)):
+        for r in (0.16, 0.20, 0.24):
+            loc = fake_locate(np.array([r, 0.0, h_mm / 1000]), 45)
+            loc.update(mode="front_face_model", top_height_mm=h_mm)
+            p = grasp.plan(loc, HE, cfg=cfg)
+            assert p["ok"], (h_mm, r, p)
+            assert p["grasp_depth_mm"] == want_depth
+            T = K.SO101().fk(K.from_lerobot(p["grasp"]))
+            assert abs(T[2, 3] - (h_mm - want_depth) / 1000) < 0.002
+    # 90mm 상자에 접근 25mm(기본)는 수직 도달 한계를 넘어 거부되어야 한다(추측해서 움직이지 않음)
+    loc = fake_locate(np.array([0.20, 0.0, 0.09]), 0)
+    loc.update(mode="front_face_model", top_height_mm=90.0)
+    p = grasp.plan(loc, HE, cfg=dict(grasp.DEFAULTS, tab_height_mm=0.0, grasp_depth_mm=22.0, approach_mm=25.0))
+    assert not p["ok"] and "역기구학" in p["reason"]

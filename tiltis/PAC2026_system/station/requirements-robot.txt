@@ -1,3 +1,0 @@
-# 실제 SO-101을 이 PC에서 움직일 때만 설치(torch 포함, 수 GB). Python 3.12 이상.
-# 2026-10-06 PyPI 0.6.1 소스에서 SO101Follower, SO101FollowerConfig(use_degrees), bus.disable_torque 확인
-lerobot[feetech]==0.6.1

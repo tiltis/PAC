@@ -31,6 +31,9 @@ DEFAULT_CONFIG = {
     "pick_roi_depth": None,  # 로봇 집기 영역(깊이 픽셀 [x0, y0, x1, y1]). 없으면 화면 아래쪽 45%
     "locate_mode": "front",  # front: 앞면 + 상자 크기(카메라를 세워 둘 때, 10-06 결정) / top: 윗면 직접 측정(위에서 내려다볼 때)
     "box_mm": [160, 130, 50],  # 마운자로 상자(자 측정) 가로·세로·높이
+    "boxes_mm": None,          # 상자가 여럿이면 [[L, W, H], ...]. 높이로 어느 상자인지 가린다(box_mm보다 우선)
+    "near_far_mm": [150, 1200],  # 상자 찾기에 쓰는 깊이 거리 범위. 뒤 벽·가구가 붙으면 far를 상자 거리+200 정도로 좁힌다
+    "locate_downsample": 2,      # 상자 찾기 해상도 축소 배수(2 = 640×400). 1이면 원본
     "tab_height_mm": 20,       # 손잡이 높이
 }
 
@@ -38,10 +41,10 @@ DEFAULT_CONFIG = {
 def load_config():
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     if CONFIG_PATH.exists():
-        user = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        user = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))  # 메모장 저장(BOM)도 허용
         cfg["depth_band_mm"] = user.get("depth_band_mm", cfg["depth_band_mm"])
         cfg["roi"].update(user.get("roi") or {})
-        for key in ("pick_roi_depth", "locate_mode", "box_mm", "tab_height_mm"):
+        for key in ("pick_roi_depth", "locate_mode", "box_mm", "boxes_mm", "tab_height_mm", "near_far_mm", "locate_downsample"):
             cfg[key] = user.get(key, cfg[key])
     return cfg
 

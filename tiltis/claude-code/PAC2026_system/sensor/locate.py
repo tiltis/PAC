@@ -36,16 +36,28 @@ def fit_plane(pts, rng, iters=300, tol=6.0):
     n, d = best
     inl = pts[np.abs(pts @ n + d) < tol]
     c0 = inl.mean(0)
-    n = np.linalg.svd(inl - c0)[2][2]
+    n = np.linalg.svd(inl - c0, full_matrices=False)[2][2]  # full U(N×N)를 만들면 2만 점에서 3GB·17초(10-08 노트북 실측)
     if n[1] > 0:  # 카메라 좌표 y는 아래 방향. 법선은 위(책상에서 카메라 쪽)를 향하게
         n = -n
     return n, -n @ c0, len(inl)
 
 
-def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=300, seed=0):
+def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=300, seed=0, downsample=1, jump_mm=25.0,
+               min_short_mm=20.0, expected_h=None, height_tol_mm=15.0):
     """mm: 깊이(mm, 0 또는 nan=무효). pick_roi: 깊이 픽셀 [x0, y0, x1, y1] (기본: 화면 아래쪽 45%).
+    downsample: 2면 가로세로 절반(1280×800 → 640×400)으로 계산해 약 4배 빠르다(노트북 25~58초 → 수 초, 10-08).
+    결과의 bbox_px는 원본 픽셀로 되돌려 준다.
+    near_far: 이 거리(mm) 밖의 점은 무시. 상자 뒤 벽·가구가 화면에서 상자와 붙어 한 덩어리가 되는 것을 막으려면
+    far를 상자 거리 + 20cm 정도로 좁힌다(10-08 실측: 벽 75cm가 상자 42cm와 합쳐져 거부됨).
     결과의 "_internal"(마스크·좌표 배열)은 locate_box_front가 쓴다. 밖으로 보낼 때는 public()으로 뺀다."""
     mm = np.where(np.isfinite(mm), mm, 0).astype(np.float64)
+    k = max(1, int(downsample))
+    if k > 1:
+        mm = mm[::k, ::k]
+        intr = {"fx": intr["fx"] / k, "fy": intr["fy"] / k, "cx": intr["cx"] / k, "cy": intr["cy"] / k}
+        if pick_roi:
+            pick_roi = [int(round(v / k)) for v in pick_roi]
+    px = 1.0 / (k * k)  # 픽셀 수 기준값을 해상도에 맞게 줄인다
     H, W = mm.shape
     P = deproject(mm, intr)
     valid = (mm > near_far[0]) & (mm < near_far[1])
@@ -53,16 +65,21 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
     x0, y0, x1, y1 = pick_roi or [0, int(H * 0.55), W, H]
     roi[y0:y1, x0:x1] = True
     region = valid & roi
-    if region.sum() < 500:
+    if region.sum() < 500 * px:
         return {"found": False, "reason": "pick_area_has_no_depth"}
     rng = np.random.default_rng(seed)
     pts = P[region]
     sub = pts[rng.choice(len(pts), min(20000, len(pts)), replace=False)]
     n, d, n_in = fit_plane(sub, rng)
     h = P @ n + d
-    box = (region | (valid & (np.arange(H)[:, None] >= y0 - 120))) & (h > min_h) & (h < max_h)
-    box = cv2.morphologyEx(box.astype(np.uint8), cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))
-    k, lab, st, _ = cv2.connectedComponentsWithStats(box, 8)
+    box = (region | (valid & (np.arange(H)[:, None] >= y0 - 120 // k))) & (h > min_h) & (h < max_h)
+    if jump_mm:  # 이웃 픽셀과 깊이가 크게 다른 경계를 끊어, 화면에서 붙어 보이는 뒤쪽 선반·벽과 상자가 한 덩어리로 묶이지 않게 한다
+        gx = np.abs(np.diff(mm, axis=1, append=mm[:, -1:]))
+        gy = np.abs(np.diff(mm, axis=0, append=mm[-1:, :]))
+        box &= ~((gx > jump_mm) | (gy > jump_mm))
+    ks = 7 if k == 1 else 5
+    box = cv2.morphologyEx(box.astype(np.uint8), cv2.MORPH_OPEN, np.ones((ks, ks), np.uint8))
+    ncomp, lab, st, _ = cv2.connectedComponentsWithStats(box, 8)  # k(축소 배수)를 덮어쓰지 않도록 이름 분리
     e1 = np.cross(n, [0, 0, 1.0])
     e1 /= np.linalg.norm(e1)
     e2 = np.cross(n, e1)
@@ -70,7 +87,7 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
     # 큰 덩어리부터 보며, 윗면이 상자 모양(두 변 20~400mm, 직사각형을 채운 정도 0.6 이상)인 첫 후보를 고른다.
     # 책상 옆 가구·벽처럼 가는 띠 모양은 걸러진다.
     for i in 1 + np.argsort(st[1:, cv2.CC_STAT_AREA])[::-1][:6]:
-        if st[i, cv2.CC_STAT_AREA] < 800:
+        if st[i, cv2.CC_STAT_AREA] < 800 * px:
             break
         m = lab == i
         # 윗면 = 최고 높이(97%) 근처 ±10mm. 비스듬히 볼수록 윗면 깊이가 퍼지므로(10-06 실측 14°에서 49~61mm)
@@ -82,11 +99,19 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
         (cx2, cy2), (w2, h2), ang = cv2.minAreaRect(q2)
         L, S = max(w2, h2), min(w2, h2)
         fill = (cv2.contourArea(cv2.convexHull(q2)) if len(q2) >= 3 else 0.0) / max(L * S, 1e-6)
-        box_px = [int(st[i, 0]), int(st[i, 1]), int(st[i, 0] + st[i, 2]), int(st[i, 1] + st[i, 3])]
-        if 20 <= S and L <= 400 and fill >= 0.6:
+        box_px = [int(st[i, 0]) * k, int(st[i, 1]) * k, int(st[i, 0] + st[i, 2]) * k, int(st[i, 1] + st[i, 3]) * k]
+        # expected_h(앞면 모델): 높이가 기대 상자와 맞는 덩어리만 고르고, 그때는 윗면 짧은 변 하한을 두지 않는다.
+        # 카메라를 낮게 세워 두면(책상 위 19cm, 9cm 상자) 윗면이 얇은 띠(약 16mm)로만 보이기 때문(10-08 실측).
+        # 뒤 선반 모서리 같은 띠는 높이가 안 맞아 걸러진다. expected_h가 없으면(top 모드) 짧은 변 ≥ min_short_mm 유지
+        if expected_h is not None:
+            shape_ok = abs(top_h - expected_h) <= height_tol_mm and L <= 400 and fill >= 0.6
+        else:
+            shape_ok = min_short_mm <= S and L <= 400 and fill >= 0.6
+        if shape_ok:
             chosen = (i, top_h, top, cx2, cy2, w2, h2, ang, fill, box_px)
             break
-        rejected.append({"bbox_px": box_px, "top_size_mm": [round(float(L), 1), round(float(S), 1)], "fill": round(float(fill), 2)})
+        rejected.append({"bbox_px": box_px, "top_size_mm": [round(float(L), 1), round(float(S), 1)], "fill": round(float(fill), 2),
+                         "top_height_mm": round(float(top_h), 1)})
     if chosen is None:
         return {"found": False, "reason": "no_box_shaped_object", "rejected": rejected, "table_normal_cam": n.round(4).tolist()}
     i, top_h, top, cx2, cy2, w2, h2, ang, fill, box_px = chosen
@@ -112,12 +137,12 @@ def locate_box(mm, intr, pick_roi=None, near_far=(150, 1200), min_h=12, max_h=30
         "bbox_px": box_px,
         "top_points": int(top.sum()), "top_fill": round(float(fill), 2), "rejected": rejected,
         "far_edge_invalid_frac": round(float((band <= 0).mean()), 2) if band.size else None,
-        "_internal": {"mask": lab == i, "P": P, "h": h, "n": n, "d": d, "e1": e1, "e2": e2},
+        "_internal": {"mask": lab == i, "P": P, "h": h, "n": n, "d": d, "e1": e1, "e2": e2, "px": px},
     }
 
 
 def locate_box_front(mm, intr, box_mm=(160.0, 130.0, 50.0), tab_height_mm=20.0, pick_roi=None,
-                     face_tol_mm=25.0, height_tol_mm=15.0, seed=0):
+                     face_tol_mm=25.0, height_tol_mm=15.0, seed=0, near_far=(150, 1200), downsample=1, max_h=None):
     """카메라가 세워져(거의 수평) 상자 윗면 안쪽이 잘 안 보일 때: 카메라를 향한 앞면으로 위치·방향을 잡고
     알고 있는 상자 크기로 윗면 중심·손잡이 위치를 계산한다(모델 기반).
 
@@ -125,17 +150,20 @@ def locate_box_front(mm, intr, box_mm=(160.0, 130.0, 50.0), tab_height_mm=20.0, 
     그 선의 길이로 어느 변이 카메라를 향하는지(160 또는 130) 고르고, 반대쪽 길이의 절반만큼 안쪽이 상자 중심이다.
     손잡이는 윗면 가운데에 긴 변 방향으로 붙어 있다고 가정한다.
     """
-    base = locate_box(mm, intr, pick_roi=pick_roi, seed=seed)
+    L, W, Hbox = box_mm
+    # 상자 높이보다 훨씬 높은 점(뒤쪽 선반·벽·사람)은 처음부터 제외한다. 상자 윗면 판정에 쓰는 97% 높이가 엉뚱한 곳에 잡히지 않게
+    base = locate_box(mm, intr, pick_roi=pick_roi, near_far=near_far, seed=seed, downsample=downsample,
+                      max_h=(Hbox + tab_height_mm + 2 * height_tol_mm) if max_h is None else max_h,
+                      expected_h=Hbox, height_tol_mm=height_tol_mm)  # 윗면 97% 높이는 상자 윗면 기준(손잡이는 작아 영향 없음, 아래 검사와 동일)
     if not base.get("found"):
         return base
     it = base.pop("_internal")
     m, P, h, n, d, e1, e2 = it["mask"], it["P"], it["h"], it["n"], it["d"], it["e1"], it["e2"]
-    L, W, Hbox = box_mm
     top_h = base["top_height_mm"]
     if abs(top_h - Hbox) > height_tol_mm:
         return {"found": False, "reason": f"상자 높이 {top_h:.0f}mm가 설정 {Hbox:.0f}mm와 다름", "table_normal_cam": base["table_normal_cam"]}
     side = m & (h > 8) & (h < top_h - 12)
-    if side.sum() < 300:
+    if side.sum() < 300 * it.get("px", 1.0):
         return {"found": False, "reason": "front_face_not_visible", "table_normal_cam": base["table_normal_cam"]}
     q = np.stack([P[side] @ e1, P[side] @ e2], 1)
     rng = np.random.default_rng(seed)
@@ -188,6 +216,26 @@ def locate_box_front(mm, intr, box_mm=(160.0, 130.0, 50.0), tab_height_mm=20.0, 
     })
     return base
 
+
+
+def locate_box_front_any(mm, intr, boxes_mm, tab_height_mm=0.0, pick_roi=None, **kw):
+    """상자 후보가 여럿일 때(예: 70×70×90 흰 상자, 80×80×45 갈색 상자): 측정한 높이와 앞면 길이에 맞는 후보를 고른다.
+    모두 실패하면 후보별 이유를 함께 돌려준다. 결과에 "box_mm"으로 어느 후보였는지 적는다."""
+    reasons = []
+    for box in boxes_mm:
+        r = locate_box_front(mm, intr, box_mm=tuple(box), tab_height_mm=tab_height_mm, pick_roi=pick_roi, **kw)
+        if r.get("found"):
+            r["box_mm"] = [float(v) for v in box]
+            return r
+        reasons.append({"box_mm": list(box), "reason": r.get("reason")})
+        if r.get("reason") == "pick_area_has_no_depth":
+            break  # 깊이 자체가 없는 것이라 다른 크기를 시도해도 같다("no_box_shaped_object"는 기대 높이에 따라 달라지므로 계속)
+    out = {"found": False, "reason": "no_candidate_box_matched", "candidates": reasons}
+    if isinstance(r, dict) and r.get("rejected") is not None:
+        out["rejected"] = r["rejected"]  # 어떤 덩어리를 왜 걸렀는지(크기·채움 비율) 현장 진단용
+    if reasons and isinstance(r, dict) and r.get("table_normal_cam") is not None:
+        out["table_normal_cam"] = r["table_normal_cam"]
+    return out
 
 
 def public(result):

@@ -2,7 +2,8 @@
 
 로봇이 상자를 정해진 자세(면 A/B)로 보여 주므로 화면 속 위치가 거의 같다. 그래서 위치를 영역(ROI)으로 고정한다.
 - 테이프: 영역 안 테이프 색 픽셀 비율 ≥ fill_min이면 붙어 있음. 색은 설정 "tape_color"
-    - 초록(기본, 권장): 색상 H 35~85, 채도 ≥ 80, 밝기 ≥ 50. 마운자로 상자에 초록 인쇄는 0%(10-06 실측)
+    - 초록(기본, 권장): 색상 H 35~95, 채도 ≥ 80, 밝기 ≥ 50. 마운자로 상자에 초록 인쇄는 0%(10-06 실측)
+      10-09 시편의 청록 테이프는 H 81~84(채도 156~193, 밝기 84~103)라 상한을 85→95로 넓혔다. 파랑(H≥100)은 여전히 제외
     - 검정: 밝기 ≤ 80, 채도 ≤ 90. 상자 앞면 진회색 화살표 무늬(면적의 16%)도 검정으로 잡히므로 그 위에는 쓰지 말 것
 - 냉매: 열화상 원시값 중앙값(상자 표면 영역) - 중앙값(기준 패치 영역) = delta.
         delta ≤ delta_max면 냉매 있음(표면이 차가움). 기준선에서 margin 안이면 판단 보류(review)
@@ -37,7 +38,7 @@ def _crop(img, roi):
     return img[y0:y1, x0:x1]
 
 
-GREEN = {"mode": "hue", "h": [35, 85], "s_min": 80, "v_min": 50}
+GREEN = {"mode": "hue", "h": [35, 95], "s_min": 80, "v_min": 50}
 BLACK = {"mode": "dark", "v_max": 80, "s_max": 90}
 
 
@@ -90,16 +91,22 @@ def judge_face(face, vis, lwir_mean, cfg):
         return None
     f = dict(m)
     reasons, uncertain = [], []
-    for t in cfg.get("tapes", []):
-        if t["face"] != face:
-            continue
+    tapes_here = [t for t in cfg.get("tapes", []) if t["face"] == face]
+    missing_ids = []
+    for t in tapes_here:
         thr = t.get("fill_min")
         present = None if thr is None else m[f"tape_{t['id']}_fill"] >= thr
         f[f"tape_{t['id']}_present"] = present
         if present is False:
             reasons.append(f"tape_missing_{t['id']}")
+            missing_ids.append(t["id"])
         elif present is None:
             uncertain.append(f"tape_threshold_missing_{t['id']}")
+    if tapes_here:  # 면별 개수 요약: "3개 중 1개 누락" 식으로 화면·기록에 바로 쓰인다
+        f["tape_expected"] = len(tapes_here)
+        f["tape_present_count"] = sum(1 for t in tapes_here if f[f"tape_{t['id']}_present"] is True)
+        f["tape_missing_count"] = len(missing_ids)
+        f["tape_missing_ids"] = missing_ids
     c = cfg.get("coolant")
     if c and c.get("face") == face:
         d, thr, margin = m["coolant_delta_counts"], c.get("delta_max_counts"), c.get("margin_counts", 0)

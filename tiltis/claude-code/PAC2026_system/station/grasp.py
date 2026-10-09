@@ -25,8 +25,10 @@ DEFAULTS = {
     "tab_size_mm": [60.0, 25.0],   # 손잡이 윗면 (긴 변, 짧은 변)
     "tab_height_mm": 20.0,
     "tab_size_tol_mm": 15.0,
-    "grasp_depth_mm": None,        # 윗면에서 아래로 집는 점까지 거리. None이면 손잡이 높이의 절반(손잡이 가운데)
-                                   # 손잡이 없이 상자 자체를 집을 때(예: 70mm 정육면체) 20~25 정도로 적는다
+    "grasp_depth_mm": None,        # 윗면에서 아래로 집는 점까지 거리(고정값). None이면 아래 frac 또는 손잡이 높이의 절반
+    "grasp_depth_frac": None,      # 상자 높이(locate의 top_height_mm)의 비율로 집는 깊이를 정한다. 예 0.4
+    "grasp_depth_min_mm": 20.0,    # frac 결과를 이 범위로 자른다(낮은 상자는 책상에 닿지 않게, 높은 상자는 너무 깊지 않게)
+    "grasp_depth_max_mm": 35.0,
     "approach_mm": 25.0,
     "lift_mm": 25.0,
     "reach_r_m": [0.14, 0.26],     # 로봇 중심에서 수평 거리 허용 범위
@@ -62,6 +64,9 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
         return {"ok": False, "reason": f"책상 법선이 로봇 z축과 {tilt:.0f}° 어긋남 (hand-eye 확인)"}
     top = handeye.point(he, loc["top_center_cam_mm"])
     depth_mm = cfg.get("grasp_depth_mm")
+    if depth_mm is None and cfg.get("grasp_depth_frac") is not None and loc.get("top_height_mm") is not None:
+        depth_mm = float(np.clip(cfg["grasp_depth_frac"] * float(loc["top_height_mm"]),
+                                 cfg["grasp_depth_min_mm"], cfg["grasp_depth_max_mm"]))
     if depth_mm is None:
         depth_mm = cfg["tab_height_mm"] / 2.0
     grasp_p = top - n * depth_mm / 1000.0
@@ -89,7 +94,7 @@ def plan(loc, he, robot=None, cfg=None, joint_map=None):
             for k, p in (("approach", approach_p), ("grasp", grasp_p), ("lift", lift_p))}
     return {"ok": True, "approach": K.to_lerobot(qs["approach"], joint_map), "grasp": K.to_lerobot(qs["grasp"], joint_map),
             "lift": K.to_lerobot(qs["lift"], joint_map),
-            "grasp_point_m": grasp_p.round(4).tolist(), "radius_mm": round(r * 1000, 1), "yaw_deg": round(np.degrees(yaw), 1),
+            "grasp_point_m": grasp_p.round(4).tolist(), "grasp_depth_mm": round(float(depth_mm), 1), "radius_mm": round(r * 1000, 1), "yaw_deg": round(np.degrees(yaw), 1),
             "table_tilt_deg": round(float(tilt), 1), "ik_error_mm_deg": errs, "handeye_rms_mm": he.get("rms_mm")}
 
 
@@ -102,8 +107,19 @@ class VisionPicker:
         self.joint_map = K.load_joint_map() if joint_map is None else joint_map
         self.robot = K.SO101()
 
-    def locate(self):
-        return self.sensor.locate()
+    def locate(self, retries=3, wait_s=0.4):
+        """깊이 한 묶음(5프레임)으로 못 찾으면 잠깐 뒤 다시 받는다(서버 시작 직후·프레임 흔들림 대비, 10-09 라이브 4/5 → 재시도로 보완).
+        끝까지 못 찾으면 마지막 결과(이유 포함)를 그대로 돌려줘 계획 단계가 거부한다."""
+        import time
+        loc = None
+        for i in range(max(1, retries)):
+            loc = self.sensor.locate()
+            if isinstance(loc, dict) and loc.get("found"):
+                if i:
+                    loc["retries"] = i
+                return loc
+            time.sleep(wait_s)
+        return loc
 
     def plan(self, loc):
         return plan(loc, self.he, self.robot, self.cfg, self.joint_map)

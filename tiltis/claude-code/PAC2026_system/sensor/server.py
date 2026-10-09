@@ -31,7 +31,7 @@ import marker
 import objects
 from depth import OrbbecDepthSource, summarize as summarize_depth
 from registration import CALIB_DIR, Registration
-from rig import validate_capture_name, CaptureSaveError
+from rig import validate_capture_name, CaptureSaveError, DEFAULT_DATA_ROOT
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -134,7 +134,7 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
         return {"ok": m is not None, "message": msg, "points": len((m or objects.load_map() or {}).get("points", []))}
 
     @app.get("/object/locate")
-    def object_locate(frames: int = 5):
+    def object_locate(frames: int = 5, save_debug: int = 0):
         """깊이로 집기 영역의 상자(손잡이 포함) 위치·방향. 깊이 카메라 좌표(mm). 로봇 집기(방식 C)용."""
         source = state.get("depth")
         if source is None:
@@ -149,14 +149,23 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
             stack.append(f.raw.astype(np.float32) * f.scale_mm)
         arr = np.stack(stack)
         mm = np.where((arr > 0).sum(0) >= max(1, len(stack) // 2 + 1), np.median(np.where(arr > 0, arr, np.nan), axis=0), 0)
+        if save_debug:  # 현장 진단: 이 깊이 영상을 저장해 두고 나중에 locate를 다시 돌려 볼 수 있다
+            dbg_dir = DEFAULT_DATA_ROOT / "locate_debug"
+            dbg_dir.mkdir(parents=True, exist_ok=True)
+            dbg_path = dbg_dir / time.strftime("depth_%Y%m%d_%H%M%S.npy")
+            np.save(dbg_path, np.nan_to_num(mm).astype(np.float32))
         cfg = objects.load_config()
         if cfg.get("locate_mode") == "front":  # 카메라를 세워 둬서 윗면 안쪽이 잘 안 보일 때(앞면 + 상자 크기)
-            result = locate.locate_box_front(np.nan_to_num(mm), intr, box_mm=tuple(cfg["box_mm"]),
-                                             tab_height_mm=cfg["tab_height_mm"], pick_roi=cfg.get("pick_roi_depth"))
+            result = locate.locate_box_front_any(np.nan_to_num(mm), intr, cfg.get("boxes_mm") or [cfg["box_mm"]],
+                                                 tab_height_mm=cfg["tab_height_mm"], pick_roi=cfg.get("pick_roi_depth"),
+                                                 near_far=tuple(cfg["near_far_mm"]), downsample=cfg.get("locate_downsample", 2))
         else:
-            result = locate.locate_box(np.nan_to_num(mm), intr, pick_roi=cfg.get("pick_roi_depth"))
+            result = locate.locate_box(np.nan_to_num(mm), intr, pick_roi=cfg.get("pick_roi_depth"), near_far=tuple(cfg["near_far_mm"]),
+                                       downsample=cfg.get("locate_downsample", 2))
         result = locate.public(result)
         result.update(frames=len(stack), intrinsics=intr, time=time.time())
+        if save_debug:
+            result["debug_depth_file"] = str(dbg_path)
         return result
 
     @app.get("/object/status")
