@@ -370,3 +370,16 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 사용자가 작업대 전체가 아닌 빨강/파랑 종이 사이의 가운데 흰 영역 상자만 표시하도록 정정했다. box_overlay.central_gap_contains는 동일 RGB에서 검출한 양쪽 종이의 상자 바닥 행 안쪽 경계를 구하고 상자 바닥 폭 전체가 사이에 들어올 때만 허용한다. 종이 누락/겹침/바깥/종이 뒤/경계 걸침은 표시하지 않는다. 이는 2D 화면 필터이며 실제 바닥 접촉이나 깊이 목표 ID를 보장하지 않는다. preview_server는 central_white_only=True를 명시해 웹과 별도창에 동일 적용했다. 기존 단순 ROI API 기본 동작은 별도호출 호환용이며 운영 /camera.jpg는 흰영역제약을 사용한다.
 
 테스트 overlay+preview 36passed,1warning(7.10s). 8002 화면 서버만 확인 후 재시작. 실제 별도3화면에서 가운데가 비고 양쪽색영역에 상자들이 있는 장면의 테두리0개를 확인했다(HTTP200, X-Overlay-Role=display-only-central-white-box). 증거 target_overlay_20261010/central_white_window.jpg. 로봇/센서 서버·좌표·판정 변경 없음.
+
+
+## 2026-10-10 — 면 이름 대신 검사 항목과 간결한 분류 이유
+
+사용자가 B면/C면은 의미 없으므로 테이프 n개 누락, 냉매 누락 의심처럼 표시하도록 요청했다. 기존 상대 station/web/index.html과 현재 현장판, sequencer의 required_checks를 확인했다. B 촬영은 테이프/냉매를 함께 다루므로 단순 B→테이프 치환 대신 관측 feature/reason을 기준으로 테이프 검사·밑면 검사·냉매 검사 카드 3개로 재구성했다. 진행 단계와 기록에서도 A/B/C면 표시를 없앴으며 프로토콜 face/자세 코드, DB, 센서/분류/로봇 제어는 그대로 사용한다.
+
+카드는 최신 재촬영을 우선하고 검증된 관측에서만 테이프 n개 누락, 아랫면 결함(벌어짐 의심), 냉매 누락 의심을 표시한다. 미검증/불완전 관측은 확인 필요, 해당 관측이 없으면 검사 대기다. 두 촬영에서 보인 동일 wrapping tape 개수를 더하지 않는다. 기록의 동일 이유를 중복 제거하고 필수 항목이 확인되지 않으면 냉매 확인 필요 등 의미 있는 이름으로 표시한다. 사진은 검사 사진 보기 안에 접어 두었다. 이는 기존 판정의 표현 개선이며 센서 정확도나 냉매 오판을 교정했다는 의미가 아니다.
+
+변경: claude-code/PAC2026_system/station/web/index.html, station/tests/test_reason_presentation.cjs. 검증 명령: Node --test station/tests/test_reason_presentation.cjs, 18 tests passed. 항목별 독립 판정, 미검증 결과 단정 금지, 재촬영 우선, 테이프 개수 중복 합산 금지, 필수 관측 부족을 추가 검증했다. inline JS 전체 파싱 통과. 실기 테스트를 실행하지 않았다.
+
+현장 C:/PAC2026_system/station/web/index.html만 백업 원본과 hash 일치를 확인한 뒤 의미별 UI로 갱신했다. 현장에 이미 있던 Claude HOME 복귀·/hub 링크/처리 코드는 유지했다. 공유 저장소 app.py에는 해당 endpoint가 없으므로 이 두 현장 기능을 이번 UI 커밋에 새로 복사하지 않았다. 서버 재시작/카메라 재연결/로봇 명령은 없었다. GET / 200 및 3카드, 브라우저 JS 오류 없음, 사용자의 시료 R021713/갈색 상자 선택 보존을 확인했다. 저장된 실제 run166 관측에 새 표현 함수를 적용해 테이프 1개 누락 / 냉매 누락 의심 / 밑면 검사 대기를 확인했고 기록 표에서도 면 접두어 없이 표시됐다. 실제 새 검사는 실행하지 않았다.
+
+증거/복구본: C:/Users/tilti/PAC2026_data/station_semantic_ui_20261010/index.before.html, semantic_cards.png. 현장 idle/hardware 상태에서 UI만 적용했으며 냉매 정확도/집기·분류 완주/안전 검증은 이번 작업 범위에서 추가 확인하지 않았다. 사용자 요청과 현재 판정 정책을 유지한 표시 변경이므로 기존 Claude 제어 변경을 덮어쓰지 않았다.

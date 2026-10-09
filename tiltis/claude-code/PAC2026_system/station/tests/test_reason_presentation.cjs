@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
 const code = html.split('// PAC_REASON_PRESENTATION_START')[1].split('// PAC_REASON_PRESENTATION_END')[0];
 const context = vm.createContext({});
 vm.runInContext(code, context);
-const {describeInspection, summarizeRun, reasonLabel} = context.PacReasons;
+const {describeInspection, summarizeRun, reasonLabel, describeChecks} = context.PacReasons;
 const inspected = overrides => ({
   face:'B', attempt:0, status:'ok', verdict:'suspect', reasons:['tape_missing_count_1'],
   features:{defect_inspected:true, tape_expected:3, tape_present_count:2, tape_missing_count:1}, ...overrides
@@ -25,8 +25,8 @@ test('real field contract: one tape missing, remaining face skipped', () => {
   const report = summarizeRun({final_verdict:'suspect', bin:'human', inspections:[inspected()], skipped_faces:['C']});
   assert.equal(report.kind, 'defect');
   assert.equal(report.title, '빨강 분류 이유');
-  assert.match(report.lines[0], /B면: 테이프 1개 누락.*2\/3개 관측/);
-  assert.match(report.lines[1], /C면 미검사/);
+  assert.equal(report.lines[0], '테이프 1개 누락');
+  assert.match(report.lines[1], /일부 검사 미완료/);
 });
 test('bottom failure reason is explicit but retains uncertainty', () => {
   const report = describeInspection(inspected({face:'C', reasons:['bottom_open'], features:{defect_inspected:true, bottom_open:true}}));
@@ -63,9 +63,8 @@ test('reinspection supersedes earlier failed view', () => {
 });
 test('wrapping tape seen on two faces is never summed', () => {
   const report = summarizeRun({final_verdict:'suspect', bin:'human', inspections:[inspected({face:'A'}), inspected()]});
-  assert.equal(report.lines.length, 2);
-  assert.match(report.lines[0], /A면: 테이프 1개 누락/);
-  assert.match(report.lines[1], /B면: 테이프 1개 누락/);
+  assert.equal(report.lines.length, 1);
+  assert.equal(report.lines[0], '테이프 1개 누락');
   assert.doesNotMatch(report.title + report.lines.join(' '), /테이프 2개 누락/);
 });
 test('fixed tape identifiers count actual reasons without counting thresholds', () => {
@@ -94,5 +93,37 @@ test('stopped run with no decision reports incomplete rather than a red classifi
 test('unknown reason text is retained for diagnosis and prototype keys stay strings', () => {
   assert.equal(reasonLabel('constructor'), '추가 확인: constructor');
   assert.equal(reasonLabel('<img src=x onerror=alert(1)>'), '추가 확인: <img src=x onerror=alert(1)>');
-  assert.match(html, /reasons\.textContent = first \+ explanation\.title/);
+  assert.match(html, /el\.querySelector\('\.reasons'\)\.textContent = check\.title/);
+});
+
+test('one captured pose can populate tape and coolant cards independently', () => {
+  const cards = describeChecks([inspected({reasons:['coolant_absent'], features:{defect_inspected:true,
+    tape_expected:3, tape_present_count:3, coolant_present:false}})]);
+  assert.equal(cards[0].title, '테이프 3개 확인');
+  assert.equal(cards[0].kind, 'ok');
+  assert.equal(cards[1].kind, 'waiting');
+  assert.equal(cards[2].title, '냉매 누락 의심');
+  assert.equal(cards[2].kind, 'defect');
+  assert.doesNotMatch(cards.map(c => c.label+c.title).join(' '), /[ABC]면/);
+});
+
+test('unvalidated features stay confirmation-needed in semantic cards', () => {
+  const cards = describeChecks([inspected({verdict:'review', reasons:['defect_rules_unvalidated'],
+    features:{defect_inspected:false, tape_present_count:2, tape_expected:3, bottom_open:true, coolant_present:false}})]);
+  assert.ok(cards.every(c => c.kind === 'review'));
+  assert.doesNotMatch(cards.map(c => c.title).join(' '), /누락|결함/);
+});
+
+test('semantic cards use reinspection and never add wrapping-tape counts', () => {
+  let cards = describeChecks([inspected({attempt:0}), inspected({attempt:1,verdict:'no_anomaly',reasons:[],
+    features:{defect_inspected:true,tape_expected:3,tape_present_count:3}})]);
+  assert.equal(cards[0].kind, 'ok');
+  cards = describeChecks([inspected({face:'A'}),inspected()]);
+  assert.equal(cards[0].title,'테이프 1개 누락');
+});
+
+test('routing policy missing evidence has a named confirmation reason', () => {
+  const report = summarizeRun({final_verdict:'review',bin:'human',policy:{checks:{coolant:null,bottom:true,tape3:true}}});
+  assert.equal(report.lines[0],'냉매 확인 필요');
+  assert.doesNotMatch(report.lines.join(' '), /누락 의심|[ABC]면/);
 });

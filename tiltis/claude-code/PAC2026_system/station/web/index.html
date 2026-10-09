@@ -119,6 +119,13 @@
   .badge.review, .badge.unmeasurable { background:var(--amber-soft); color:var(--amber); }
   .reasons { font-size:13.5px; color:var(--ink-2); margin:0 0 8px; white-space:pre-line; overflow-wrap:anywhere; }
   .measurements { font-size:12px; }
+  .check-result { font-size:20px; font-weight:750; line-height:1.45; margin:16px 0 8px; letter-spacing:-.4px; }
+  .face.defect { border-color:#f0c9c9; background:#fffafa; }
+  .face.defect .check-result { color:var(--warn); }
+  .face.ok .check-result { color:var(--blue); }
+  .face.review .check-result { color:var(--amber); }
+  .check-evidence { margin-top:14px; }
+  .check-evidence summary { font-size:12px; color:var(--mute); cursor:pointer; margin-bottom:10px; }
 
   .scroll { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:13.5px; }
@@ -202,10 +209,10 @@
       <div class="card-head"><h2>분류 목적지</h2><span class="sub">종이 위치는 카메라로 자동 확인</span></div>
       <div class="card-body">
         <div class="zones">
-          <div class="zone blue"><strong>파랑 영역</strong><span>정상 판정<br>모든 검사면 이상 미검출</span></div>
+          <div class="zone blue"><strong>파랑 영역</strong><span>정상 판정<br>필수 검사 항목 모두 확인</span></div>
           <div class="zone red"><strong>빨강 영역</strong><span>불량 및 확인 필요<br>이상 의심 · 미판정 · 측정 불가</span></div>
         </div>
-        <p class="note">이상이 발견되면 남은 면 검사를 생략할 수 있습니다. 센서 오류나 연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
+        <p class="note">이상이 발견되면 남은 검사를 생략할 수 있습니다. 센서 오류나 연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
       </div>
     </section>
   </div>
@@ -221,12 +228,12 @@
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>면별 검사 결과</h2><span class="sub">면마다 가장 최근 촬영</span></div>
+      <div class="card-head"><h2>포장 검사 결과</h2><span class="sub">누락·결함을 항목별로 확인</span></div>
       <div class="card-body">
         <div class="faces">
-          <div class="face" id="faceA"></div>
-          <div class="face" id="faceB"></div>
-          <div class="face" id="faceC" hidden></div>
+          <div class="face" id="checkTape"></div>
+          <div class="face" id="checkBottom"></div>
+          <div class="face" id="checkCoolant"></div>
         </div>
       </div>
     </section>
@@ -247,7 +254,7 @@
 const $ = id => document.getElementById(id);
 const NA = '없음';
 const STEP = { home:'홈 위치', pick_approach:'집기 접근', pick:'집기 위치', lift:'들어올리기',
-  face_A:'A면 제시', face_B:'B면 제시', face_C:'C면 제시', bin_ok:'파랑 영역으로 이동', bin_human:'빨강 영역으로 이동' };
+  face_A:'포장 확인 자세', face_B:'테이프·냉매 확인 자세', face_C:'밑면 확인 자세', bin_ok:'파랑 영역으로 이동', bin_human:'빨강 영역으로 이동' };
 const VERDICT = { review:'미판정·검토', no_anomaly:'이상 미검출', suspect:'이상 의심', unmeasurable:'측정 불가' };
 const BIN = { ok:'파랑 영역', human:'빨강 영역' };
 const BIN_COLOR = { ok:'blue', human:'red' };
@@ -314,7 +321,7 @@ globalThis.PacReasons = (() => {
       if (simulated && !neutral.includes('simulated_inspection')) out.details.push('모의 검사 결과');
     }
     const expected = count(f.tape_expected), present = count(f.tape_present_count);
-    if (expected !== null && expected > 0) out.details.push('이 면 테이프 ' +
+    if (expected !== null && expected > 0) out.details.push('테이프 ' +
       (present === null ? '개수 확인 불가' : present + '/' + expected + '개 관측') + (trusted ? '' : ' (미확정)'));
     if (f.coolant_present === true && trusted) out.details.push('냉매 확인됨');
     if (f.bottom_open === false && trusted) out.details.push('아랫면 벌어짐 미검출');
@@ -338,16 +345,70 @@ globalThis.PacReasons = (() => {
       else if (run.bin === 'human') title = kind === 'defect' ? '빨강 분류 이유' : '빨강 분류: 확인 필요';
       else title = '검사 결과';
     } else if (run.error) { kind = 'error'; title = '검사 중단·분류 미완료'; }
-    const lines = problems.map(f => f.face + '면: ' + f.title + (f.details.length ? ' (' + f.details.join(' · ') + ')' : ''));
+    const lines = unique(problems.map(f => f.title));
+    for (const [key, value] of Object.entries(run.policy?.checks || {})) {
+      const labels = {coolant:'냉매 확인 필요', bottom:'밑면 확인 필요', tape3:'테이프 개수 확인 필요'};
+      const relevant = {coolant:'냉매', bottom:'아랫면', tape3:'테이프'};
+      if (value !== true && labels[key] && !lines.some(line => line.includes(relevant[key]))) lines.push(labels[key]);
+    }
     if (!lines.length && run.final_verdict && run.bin === 'ok') lines.push('검사한 항목에서 이상을 찾지 못했습니다.');
     if (!lines.length && run.final_verdict && run.bin !== 'ok') lines.push('상세 검사 근거가 없어 확인이 필요합니다.');
     if (run.error) lines.push('실행 오류: ' + run.error);
     const skipped = arr(run.skipped_faces);
-    if (skipped.length) lines.push(skipped.join('·') + '면 미검사(앞선 이상 발견으로 조기 종료)');
+    if (skipped.length) lines.push('일부 검사 미완료(앞선 이상 발견으로 조기 종료)');
     // Each face may see the same wrapping tape. Keep per-face counts; never sum a box-wide missing count.
     return {kind, title, lines, faces};
   }
-  return {reasonLabel, describeInspection, summarizeRun};
+  function describeChecks(inspections) {
+    const latest = new Map();
+    for (const i of arr(inspections)) {
+      if (!i || typeof i !== 'object') continue;
+      const previous = latest.get(i.face);
+      if (!previous || Number(i.attempt || 0) >= Number(previous.attempt || 0)) latest.set(i.face, i);
+    }
+    const definitions = [
+      {key:'tape', label:'테이프 검사', fields:['tape_expected','tape_present_count'], prefix:'tape_', good:'테이프 확인 완료'},
+      {key:'bottom', label:'밑면 검사', fields:['bottom_open','bottom_edge_density'], prefix:'bottom_', good:'밑면 이상 미검출'},
+      {key:'coolant', label:'냉매 검사', fields:['coolant_present','coolant_delta_counts'], prefix:'coolant_', good:'냉매 확인됨'}
+    ];
+    return definitions.map(d => {
+      const samples = [...latest.values()].filter(i => d.fields.some(k => k in (i.features || {})) ||
+        arr(i.reasons).some(r => typeof r === 'string' && r.startsWith(d.prefix)));
+      const out = {key:d.key, label:d.label, kind:'waiting', title:'검사 대기', source:null};
+      if (!samples.length) return out;
+      const findings = samples.map(i => {
+        const f = i.features || {}, reasons = arr(i.reasons).filter(r => typeof r === 'string' && r.startsWith(d.prefix));
+        const trusted = i.status === 'ok' && i.verdict !== 'unmeasurable' && f.defect_inspected === true &&
+          i.sensor_data?.simulated !== true && !arr(i.reasons).includes('defect_rules_unvalidated');
+        let kind = 'review', title = d.label.replace(' 검사','') + ' 확인 필요';
+        if (trusted) {
+          if (d.key === 'tape') {
+            const expected = count(f.tape_expected), present = count(f.tape_present_count);
+            const missing = reasons.find(r => /^tape_missing_count_[1-9]\d*$/.test(r));
+            const ids = unique(reasons.filter(r => /^tape_missing_(?!count_)\w+$/.test(r)));
+            if (i.verdict === 'suspect' && (missing || ids.length)) {
+              kind = 'defect'; title = missing ? reasonLabel(missing) : '테이프 ' + ids.length + '개 누락';
+            } else if (!reasons.length && expected !== null && expected > 0 && present !== null && present >= expected) {
+              kind = 'ok'; title = '테이프 ' + present + '개 확인';
+            }
+          } else if (d.key === 'bottom') {
+            if (f.bottom_open === true && i.verdict === 'suspect') { kind = 'defect'; title = '아랫면 결함(벌어짐 의심)'; }
+            else if (f.bottom_open === false && !reasons.length) { kind = 'ok'; title = d.good; }
+          } else {
+            if (f.coolant_present === false && i.verdict === 'suspect') { kind = 'defect'; title = '냉매 누락 의심'; }
+            else if (f.coolant_present === true && !reasons.length) { kind = 'ok'; title = d.good; }
+          }
+        }
+        if (i.status !== 'ok') { kind = 'error'; title = d.label.replace(' 검사','') + ' 검사 실패'; }
+        return {kind, title, source:i};
+      });
+      const priority = {error:4, defect:3, review:2, ok:1};
+      findings.sort((a,b) => priority[b.kind] - priority[a.kind]);
+      // Repeated wrapping-tape observations are never added into a box-wide count.
+      return {...out, ...findings[0]};
+    });
+  }
+  return {reasonLabel, describeInspection, summarizeRun, describeChecks};
 })();
 // PAC_REASON_PRESENTATION_END
 
@@ -356,8 +417,8 @@ function stepLabel(s) {
   let m;
   if ((m = s.match(/^move:(.+)$/))) return '이동: ' + (STEP[m[1]] || m[1]);
   if ((m = s.match(/^grip:(.+)$/))) return m[1] === 'open' ? '그리퍼 열기' : '그리퍼 닫기';
-  if ((m = s.match(/^settle:(.+)$/))) return m[1] + '면 안정화 대기';
-  if ((m = s.match(/^inspect:(.)#(\d)$/))) return m[1] + '면 검사' + (m[2] === '1' ? ' (재촬영)' : '');
+  if ((m = s.match(/^settle:(.+)$/))) return ({A:'포장', B:'테이프·냉매', C:'밑면'}[m[1]] || '검사 자세') + ' 안정화 대기';
+  if ((m = s.match(/^inspect:(.)#(\d)$/))) return ({A:'포장 검사', B:'테이프·냉매 검사', C:'밑면 검사'}[m[1]] || '포장 검사') + (m[2] === '1' ? ' (재촬영)' : '');
   return s;
 }
 const fmtMs = ms => (ms == null ? NA : (ms / 1000).toFixed(1) + ' 초');
@@ -415,44 +476,25 @@ function setImg(img, path) {
   const url = path ? '/sensor-img?path=' + encodeURIComponent(path) : '';
   if (img.dataset.src !== url) { img.dataset.src = url; if (url) img.src = url; else img.removeAttribute('src'); }
 }
-function renderFace(el, face, inspections) {
-  const list = inspections.filter(i => i.face === face);
+function renderCheck(el, check) {
   if (!el.dataset.built) {
-    el.innerHTML = '<h3><span></span><span class="badge">대기</span></h3><div class="reasons"></div>' +
-      '<img alt="RGB"><img alt="열화상"><div class="measurements note"></div>';
+    el.innerHTML = '<h3><span></span><span class="badge"></span></h3><div class="reasons check-result"></div>' +
+      '<details class="check-evidence"><summary>검사 사진 보기</summary><img><p class="note"></p></details>';
     el.dataset.built = '1';
   }
+  el.className = 'face ' + check.kind;
   const [title, badge] = el.querySelectorAll('h3 span');
-  const reasons = el.querySelector('.reasons');
-  const imgs = el.querySelectorAll('img');
-  const measurements = el.querySelector('.measurements');
-  measurements.textContent = '';
-  const last = list[list.length - 1];
-  title.textContent = face + '면' + (list.length > 1 ? ' (재촬영)' : '');
-  if (!last) { badge.textContent = '대기'; badge.className = 'badge'; reasons.textContent = ''; setImg(imgs[0]); setImg(imgs[1]); return; }
-  if (last.status !== 'ok') { badge.textContent = '오류'; badge.className = 'badge suspect'; reasons.textContent = last.error || ''; setImg(imgs[0]); setImg(imgs[1]); return; }
-  badge.textContent = VERDICT[last.verdict] || last.verdict;
-  badge.className = 'badge ' + last.verdict;
-  const first = list.length > 1 ? '1차: ' + (VERDICT[list[0].verdict] || list[0].verdict) + ' / ' : '';
-  const explanation = PacReasons.describeInspection(last);
-  reasons.textContent = first + explanation.title + (explanation.details.length ? '\n' + explanation.details.join(' · ') : '');
-  reasons.title = explanation.rawReasons.join(', ');
-  setImg(imgs[0], last.images && last.images.rgb);
-  setImg(imgs[1], last.images && last.images.lwir);
-  const data = last.sensor_data || {};
-  const parts = [];
-  if (data.simulated) parts.push('모의 입력');
-  if (data.lwir) parts.push('열화상: 원시값 상대 비교(대상 온도 아님)');
-  if (data.depth) {
-    const d = data.depth;
-    const depthStatus = { disabled:'미사용', missing:'프레임 없음', stale:'오래된 프레임', invalid:'무효', valid:'수신' };
-    parts.push('뎁스: ' + (depthStatus[d.status] || d.status));
-    if (d.status === 'valid' && d.median_mm != null) parts.push((d.roi_xyxy ? '설정한 깊이 ROI' : '전체 깊이 프레임') +
-      ' 중앙값 ' + d.median_mm + ' mm');
-  }
-  if (data.association) parts.push(data.association.status === 'linked_under_stationary_specimen_precondition'
-    ? '고정된 한 시료 조건에서 연결' : '시료 ID로 기록 연결 · 동일 물체 조건 별도 확인');
-  measurements.textContent = parts.join(' / ');
+  title.textContent = check.label;
+  badge.textContent = {waiting:'대기', ok:'확인 완료', defect:'이상 의심', review:'확인 필요', error:'오류'}[check.kind];
+  badge.className = 'badge ' + {ok:'no_anomaly', defect:'suspect', review:'review', error:'unmeasurable'}[check.kind];
+  el.querySelector('.reasons').textContent = check.title;
+  const image = el.querySelector('img'), evidence = el.querySelector('details');
+  const source = check.source, path = source?.images?.[check.key === 'coolant' ? 'lwir' : 'rgb'];
+  evidence.hidden = !path;
+  image.alt = check.label + ' 촬영 사진';
+  setImg(image, path);
+  el.querySelector('p').textContent = source ? '시료 ' + (source.specimen_id || $('spec').textContent) +
+    (Number(source.attempt || 0) > 0 ? ' · 재촬영 결과' : '') : '';
 }
 
 async function poll() {
@@ -491,7 +533,8 @@ async function poll() {
     const fin = $('final');
     if (run && run.final_verdict) {
       fin.hidden = false; fin.className = 'final ' + (BIN_COLOR[run.bin] || '');
-      fin.textContent = '최종: ' + (VERDICT[run.final_verdict] || run.final_verdict) + ' → 목표 ' + (BIN[run.bin] || run.bin) + ' / 배치 ' + (BIN[run.placed_bin] || '미확인') + ' / 실행 ' + (run.routing_status || '미기록');
+      fin.textContent = (run.bin === 'ok' ? '정상 판정' : '불량·확인 필요') + ' → ' + (BIN[run.bin] || '분류 확인 필요') +
+        (run.placed_bin ? ' · 배치 ' + (BIN[run.placed_bin] || run.placed_bin) : ' · 배치 확인 대기');
     } else fin.hidden = true;
     const summary = PacReasons.summarizeRun(run || {});
     $('decisionReasons').hidden = !run || (!run.final_verdict && !run.error && !summary.lines.length);
@@ -501,11 +544,8 @@ async function poll() {
       const li = document.createElement('li'); li.textContent = line; return li;
     }));
     const ins = run ? run.inspections : [];
-    const faces = (s.faces && s.faces.length) ? s.faces : ['A', 'B'];
-    for (const f of ['A', 'B', 'C']) {  // 검사하기로 한 면만 카드 표시(FACES=A,B,C면 3장)
-      const el = $('face' + f); el.hidden = !faces.includes(f);
-      if (!el.hidden) renderFace(el, f, ins);
-    }
+    const checkIds = {tape:'checkTape', bottom:'checkBottom', coolant:'checkCoolant'};
+    for (const check of PacReasons.describeChecks(ins)) renderCheck($(checkIds[check.key]), check);
     if (st !== lastState) { lastState = st; loadHistory(); }
   } catch (e) { $('state').textContent = '연결 끊김'; $('state').className = 'pill error'; }
 }
