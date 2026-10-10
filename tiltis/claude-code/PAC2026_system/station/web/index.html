@@ -592,8 +592,8 @@ function refreshZoneFrame(){
   if(zoneBusy||performance.now()-zoneLastAt<3000)return;
   zoneLastAt=performance.now();
   if(!outlinedPreview){try{readZoneFrame($('live'))}catch(e){clearZones()}return}
-  // The outlined feed is cross-origin. Read a small, infrequent same-origin
-  // snapshot through the existing display proxy; it never opens a camera.
+  // Read an unannotated snapshot so the red target box is not a paper region.
+  // This existing display proxy never opens another camera.
   zoneBusy=true;const img=new Image();
   img.onload=()=>{zoneBusy=false;try{readZoneFrame(img)}catch(e){clearZones()}};
   img.onerror=()=>{zoneBusy=false;clearZones()};img.src='/sensor-live?t='+Date.now();
@@ -602,36 +602,43 @@ function refreshZoneFrame(){
 // 실시간 카메라: 이전 이미지가 다 받아진 뒤에 다음 요청 (요청이 쌓이지 않게)
 let liveOn = true;
 const LIVE_FRAME_MS = 1000 / 15;
-let liveStartedAt = 0, liveTimer = null;
-const localPreview = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
-// Optional deployment override for the display service; no robot endpoint.
-const previewUrl = document.querySelector('meta[name="pac-preview-url"]')?.content || 'http://127.0.0.1:8002/camera.jpg';
-let outlinedPreview = localPreview;
+let liveStartedAt = 0, liveTimer = null, liveWatchdog = null;
+let outlinedPreview = true;
 function liveNext() {
   clearTimeout(liveTimer);
+  clearTimeout(liveWatchdog);
   if (!liveOn || document.hidden) return;
   liveStartedAt = performance.now();
-  const prefix = outlinedPreview ? previewUrl : '/sensor-live';
-  $('live').src = prefix + '?specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
+  $('live').src = '/sensor-live?boxes=' + (outlinedPreview ? '1' : '0') + '&specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
+  liveWatchdog = setTimeout(() => {
+    clearZones(); outlinedPreview = false;
+    $('liveHint').hidden = false;
+    scheduleLive(0);
+  }, 6000);
 }
 function scheduleLive(delay) {
   clearTimeout(liveTimer);
   if (liveOn && !document.hidden) liveTimer = setTimeout(liveNext, delay);
 }
 $('live').onload = () => {
+  clearTimeout(liveWatchdog);
+  $('liveHint').hidden = true;
   refreshZoneFrame();
   scheduleLive(Math.max(0, LIVE_FRAME_MS - (performance.now() - liveStartedAt)));
 };
 $('live').onerror = () => {
+  clearTimeout(liveWatchdog);
+  $('liveHint').hidden = false;
   clearZones();
-  outlinedPreview = false; // Preview service failure must not hide the existing sensor feed.
+  outlinedPreview = false; // Retry the original frame if display annotation fails.
   scheduleLive(1500);
 };
 $('liveBtn').onclick = () => {
   clearTimeout(liveTimer);
+  clearTimeout(liveWatchdog);
   liveOn = !liveOn;
   clearZones(); zoneLastAt=-Infinity;
-  if (liveOn) outlinedPreview = localPreview;
+  if (liveOn) outlinedPreview = true;
   $('liveBtn').textContent = liveOn ? '끄기' : '켜기';
   $('live').hidden = !liveOn;
   $('liveHint').hidden = liveOn;
@@ -639,6 +646,7 @@ $('liveBtn').onclick = () => {
 };
 document.addEventListener('visibilitychange', () => {
   clearTimeout(liveTimer);
+  clearTimeout(liveWatchdog);
   if (!document.hidden && liveOn) liveNext();
 });
 $('resume').onclick = () => post('/api/resume');

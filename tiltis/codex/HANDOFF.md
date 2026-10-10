@@ -455,3 +455,20 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 별도 OpenCV 창의 기존 viewer14584 종료/새 영상 재실행은 자동 승인 검토에서 차단됐다(구체적인 이유 미제공). 기존 창을 그대로 유지하고 우회하지 않았으며 사용자에게 설명했다. 사용자가 웹 스테이션 화면만 사용한다고 답해 native viewer 전환은 이번 범위에서 제외했다. 이전8001/8002 백엔드 프레임 최적화 재시작 대기는 그대로다. 기존 미커밋 codex/vision_pick/bootstrap.py를 보존하고 커밋에서 제외한다.
 
 증거: C:/Users/tilti/PAC2026_data/vis_bbox_20261010/ 의 raw.jpg, before.jpg, current.jpg, candidate.jpg, taped_candidate.jpg/json, final.jpg/json, station_bbox_final.png, index.before.html, deployment.json, preview2.stdout/stderr.log. 현재 화면의 상자 하나 표시를 검증했으며 실제 로봇 선택 ID 동기화나 판정 정확도를 새로 검증한 것은 아니다.
+
+
+## 2026-10-10 — 같은 출처로 실시간 카메라 복구
+
+사용자가 웹 스테이션의 실시간 카메라가 보이지 않는다고 보고했다. 시작 시 8000 연결 거부를 확인했고, 이후 다른 실행 주체가 기존 스테이션을 다시 실행했다(마지막 확인 worker29580, taught_station.py). 이 작업에서 스테이션을 시작하거나 로봇 명령을 보내지 않았다. 기존 8005 camera.jpg는 HTTP로 응답하지만 브라우저의 이미지 로드는 완료되지 않았다. 이전 바운딩 박스 작업의 API 검증이 모든 브라우저의 영상 로드 완료를 보장하지 않았음을 확인했다.
+
+공유 station/web/index.html과 현장 HTML의 카메라 주소를 같은 출처 /sensor-live?boxes=1로 바꿨다. 별도 localhost 포트/meta override를 제거해 원격 클라이언트도 스테이션 주소로 요청한다. 6초간 프레임이 완료되지 않거나 오류가 발생하면 원본 boxes=0으로 재시도하며, 끄기/숨김에서 타이머를 취소한다. 분류 영역 표시는 원본 스냅샷으로 계산해 빨간 상자 사각형을 종이로 오인하지 않게 한다. 화면, 검사 버튼 및 로봇 요청은 기존대로 유지했다.
+
+station/app.py의 기존 /sensor-live에 선택적 boxes 인자를 추가했다. boxes=1일 때 기존 Codex box_overlay.annotate_jpeg의 중앙 흰 영역 단일 상자 선택을 재사용한다. helper가 없는 실행 환경은 원본 영상을 제공한다. 기본 boxes=0 응답 바이트는 동일하며 검사/locate/새 카메라 핸들 요청은 없다. 현장 app.py와 HTML에 해당 블록만 백업/hash 확인 후 부분 적용했고 Claude의 다른 변경을 보존했다.
+
+검증: .venv-station Python -m pytest tiltis/claude-code/PAC2026_system/station/tests/test_live_display.py --confcutdir=tiltis/claude-code/PAC2026_system/station -q →6 passed,1 기존 Starlette warning(12.88s). Node --test station/tests/test_live_camera.cjs station/tests/test_reason_presentation.cjs →23 passed,0 failed(553ms). 새 proxy 테스트는 원본 바이트, 단일 상자 표시, helper 없음, 연결 단절, 잘못된 ID/이미지를 확인하며 실제 모터를 사용하지 않는다. git diff --check 통과. 현장/공유 app.py AST 파싱 확인.
+
+실제 브라우저의 이전 탭을 최신 UI로 새로고침하고 시료/상자/세션을 보존했다. 마지막 tab4는 R221409/white/demo를 유지했고 RGB·열화상·깊이 3개가 표시되는 실제 화면을 저장했다. 같은 출처 프레임 HTTP200/79953 bytes도 확인했다. 검사 중 상태는 외부 사용자의 실행이며 이 작업에서 검사/HOME/로봇 제어를 누르지 않았다. 모든 기존 탭을 새로고침하지 않았으므로 구 HTML을 가진 다른 탭은 직접 새로고침이 필요하다.
+
+미완료: 실행 중 station Python은 구 handler를 캐시해 /sensor-live?boxes=1 응답에 X-Box-Candidates가 없다. 따라서 현재 웹 카메라는 복구됐지만 새 같은 출처 바운딩 박스는 아직 활성화되지 않았다. 새 코드 활성화를 위한 guarded 스테이션 종료/재시작은 자동 승인 검토가 차단했다(구체적인 이유 미제공). 사용자에게 기존 run_taught_station.ps1 수동 실행을 요청했고, 사용자 “너가 해” 재승인 뒤 동일 명령을 한 번 재시도했지만 다시 차단됐다. 종료/재시작 우회는 하지 않았다. 검사 완료 후 사용자가 직접 기존 스크립트로 재시작하면 boxes=1 헤더와 실제 화면을 확인해야 한다. 기존8001/8002 프레임 최적화 활성화도 별도 대기 상태다.
+
+증거/복구: C:/Users/tilti/PAC2026_data/camera_sameorigin_20261010/ 의 index.html.before, app.py.before, camera_before_backend_reload.png, cameras_restored_final.png, verification.json. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 수정/커밋에서 제외한다.

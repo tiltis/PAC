@@ -154,7 +154,7 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
         return sensor.health()
 
     @app.get("/sensor-live")
-    def sensor_live(specimen_id: str = ""):
+    def sensor_live(specimen_id: str = "", boxes: bool = False):
         # 센서 서버의 실시간 3화면 합성 이미지. 시료 ID는 계약과 같은 문자만 허용
         if not re.fullmatch(r"[A-Za-z0-9_.-]{0,80}", specimen_id):
             raise HTTPException(400, "잘못된 시료 ID")
@@ -162,7 +162,22 @@ def create_app(robot: Optional[RobotBase] = None, sensor_url: Optional[str] = No
         if got is None:
             raise HTTPException(502, "센서 서버에서 실시간 화면을 받지 못했다")
         content, ctype = got
-        return Response(content, media_type=ctype, headers={"Cache-Control": "no-store"})
+        headers = {"Cache-Control": "no-store"}
+        if boxes:
+            # Optional Codex display helper; inspection and robot inputs stay raw.
+            try:
+                from box_overlay import annotate_jpeg
+            except ImportError:
+                headers["X-Box-Candidates"] = "unavailable"
+            else:
+                try:
+                    content, count = annotate_jpeg(content, central_white_only=True)
+                except ValueError:
+                    raise HTTPException(502, "실시간 화면을 디코딩하지 못했다")
+                if count:
+                    ctype = "image/jpeg"
+                headers["X-Box-Candidates"] = str(count)
+        return Response(content, media_type=ctype, headers=headers)
 
     @app.get("/sensor-img")
     def sensor_img(path: str):
