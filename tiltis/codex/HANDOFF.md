@@ -440,3 +440,18 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 검증: Node --test tiltis/claude-code/PAC2026_system/station/tests/test_reason_presentation.cjs →18 passed,0 failed. inline JS 전체 파싱, 중복 ID 없음, 직접 DOM ID 참조 유효, git diff --check 통과. 실제8000 브라우저에서 입력 R021713/갈색/demo 보존, 3개 카메라 표시, i 설명 keyboard focus, 콘솔 경고/오류 없음 확인.1280x900에서 좌측360px와 우측853px 및 두 행의 y/height 일치, 기본438px 화면에서 한 열 전환을 확인했다. 검증용 viewport는 기본값으로 복원했다. 브라우저 확인 중 외부에서 R104829 검사가 시작됐으나 이번 작업에서 로봇을 구동하거나 해당 검사 성공을 검증하지 않았다. 새 검사 결과가 대기 상태였으므로 해당 검사의 실제 사진/판정 완료를 주장하지 않는다.
 
 증거/복구: C:/Users/tilti/PAC2026_data/seongsu_ui_f19d22d_20261010/ 에 live.before.html, repo.before.html, seongsu.index.html, candidate.html, integration.json, deployed.json, ui03_desktop.png, ui03_default.png. 적용 HTML SHA256:0c907898b82a4be356c19d3d1ba3c36f7306fceb059ad67a66e54c718459a1c2. 이전 영상 백엔드 최적화의 서버 재시작 대기는 별도로 남아 있다. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 변경 및 커밋에서 제외한다.
+
+
+## 2026-10-10 — VIS 타겟 한 개의 사각형 바운딩 박스
+
+사용자가 현재 타겟 상자 한 개를 VIS 화면에만 바운딩 박스로 표시하도록 요청했고, 마지막에 웹 스테이션 화면만 사용한다고 확인했다. 기존 box_overlay.py의 가운데 흰 영역 single_target_outline 선택을 재사용하여 윤곽선 대신 cv2.boundingRect의 빨간 사각형을 그린다. 다른 후보를 가장 큰 상자로 임의 선택하지 않고 후보0/복수 및 분류 종이 위 상자는 무표시 조건을 유지했다. 입력 배열을 수정하지 않으며 열화상/뎁스 배열은 동일하고 JPEG 재압축 차이는 있다. 로봇 선택 ID와 RGB의 보정 대응은 여전히 없으므로 표시용 중앙 작업 상자다.
+
+현장 현재 사진에서 테이프가 갈색 면을 분리해 기존 후보가 모두 최소 면적/solidity 조건에서 탈락하는 실패를 재현했다. 기존 검사 CARDBOARD/GREEN 색 규칙을 사용하되 연결 영역 생성 전에 둘을 합치고, 각 영역 안에서 실제 갈색 픽셀 최소 면적을 요구했다. 초록 물체만으로는 상자로 인정하지 않는다. 현재 저장 영상에서 한 후보 bbox(228,198,67,67)px로 확인했다. 밝기/가림/맞붙은 상자/흰 상자 일반 검출 성능을 주장하지 않는다. SAM/검사 판정/집기/IK/로봇 코드에는 변경 없다.
+
+변경: codex/vision_pick/box_overlay.py, tests/test_box_overlay.py, 상대 station/web/index.html의 선택적 meta pac-preview-url 읽기(기본8002 유지). source/layout UI_03는 유지한다. 현장 HTML은 HEAD와 일치하는지 대조하고 백업한 뒤 같은 수정 및 현장 전용 meta http://127.0.0.1:8005/camera.jpg를 넣었다. 기존8000/8001/8002를 종료하지 않고 기존 preview_server.py를 --port8005로 실행했다. 센서 장치 핸들을 열지 않는 HTTP 표시 서비스다. 테이프 보정 반영을 위해 이 작업에서 만든8005 worker34928만 identity 확인 후 교체했고 최종 parent14720/worker25384다. 기존 서버는 유지했으며 추가8005는 현재 웹 스테이션 표시 서비스로 사용한다. 이후8005 시작도 동일 vision_pick 폴더, .venv-station Python, --site-dir C:/PAC2026_system --port8005 --sam-result-dir C:/Users/tilti/PAC2026_data/integration_20261009/colab_native_sam 인자를 사용한다. 통상8002로 새 코드 실행할 경우 현장 meta override를8002로 맞추거나 제거할 수 있다.
+
+검증 명령: .venv-station Python -m pytest tiltis/codex/vision_pick/tests/test_box_overlay.py tiltis/codex/vision_pick/tests/test_preview_server.py --confcutdir=tiltis/codex/vision_pick -q →40 passed,1 기존 Starlette warning(23.96s). 회전된 상자의 사각형 모서리, 입력/다른 패널 불변, 테이프에 분리된 작은 면 하나로 연결, 갈색 없는 초록 물체 제외를 추가했다. Node --test station/tests/test_reason_presentation.cjs →18 passed,0 failed(597ms). 실제8005 camera.jpg HTTP200 X-Box-Candidates=1 및 현재 VIS 중앙 상자 한 개에 빨간 사각형, 다른 패널에 추가 상자 테두리 없음 확인. 별도 다른 순간에는 상자가 파랑 종이 위여서0 후보였으며 이것도 기존 조건대로다. 브라우저 입력 R021713/갈색/demo를 보존했고 새 영상 URL 확인, 카메라 표시를 껐다 켜서 전환, 콘솔 경고/오류 없음, 실제 screenshot을 저장했다. 검사/HOME/로봇 명령은 없다.
+
+별도 OpenCV 창의 기존 viewer14584 종료/새 영상 재실행은 자동 승인 검토에서 차단됐다(구체적인 이유 미제공). 기존 창을 그대로 유지하고 우회하지 않았으며 사용자에게 설명했다. 사용자가 웹 스테이션 화면만 사용한다고 답해 native viewer 전환은 이번 범위에서 제외했다. 이전8001/8002 백엔드 프레임 최적화 재시작 대기는 그대로다. 기존 미커밋 codex/vision_pick/bootstrap.py를 보존하고 커밋에서 제외한다.
+
+증거: C:/Users/tilti/PAC2026_data/vis_bbox_20261010/ 의 raw.jpg, before.jpg, current.jpg, candidate.jpg, taped_candidate.jpg/json, final.jpg/json, station_bbox_final.png, index.before.html, deployment.json, preview2.stdout/stderr.log. 현재 화면의 상자 하나 표시를 검증했으며 실제 로봇 선택 ID 동기화나 판정 정확도를 새로 검증한 것은 아니다.

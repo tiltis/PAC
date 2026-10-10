@@ -60,12 +60,15 @@ def cardboard_outlines(rgb_bgr):
     """
     cardboard, tape = _inspection_colors()
     hsv = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2HSV)
-    mask = _color_mask(hsv, cardboard)
+    cardboard_mask = _color_mask(hsv, cardboard)
+    tape_mask = _color_mask(hsv, tape)
+    # Wrapping tape can separate the brown faces into sub-threshold fragments.
+    # Connect both colours first, then require cardboard evidence in each region.
+    mask = cv2.bitwise_or(cardboard_mask, tape_mask)
     height, width = mask.shape
     kernel_size = max(1, int(round(width / 480 * 5)) | 1)
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    tape_mask = _color_mask(hsv, tape)
     tape_count, tape_labels, tape_stats, _ = cv2.connectedComponentsWithStats(tape_mask, 8)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     outlines = []
@@ -84,6 +87,8 @@ def cardboard_outlines(rgb_bgr):
         # joining arbitrary green scenery or filling another camera's pixels.
         region = np.zeros_like(mask)
         cv2.drawContours(region, [contour], -1, 255, -1)
+        if cv2.countNonZero(cv2.bitwise_and(cardboard_mask, region)) < mask.size * 0.0035:
+            continue
         # Keep extension local: a large group of touching boxes must not pull
         # in distant green scenery just because the group's hull is wide.
         reach = max(2, min(int(round(width * 0.025)), int(round(min(w, h) * 0.4))))
@@ -176,8 +181,12 @@ def annotate_collage(collage_bgr, rgb_width=480, workspace_roi=DISPLAY_WORKSPACE
     rgb = result[:, :rgb_width]
     outlines = single_target_outline(rgb, workspace_roi=workspace_roi, central_white_only=central_white_only)
     thickness = max(2, int(round(rgb_width / 240)))
+    # Keep the existing single target selection, but display its enclosing box.
     # Drawing into the panel view clips even antialiased strokes at its border.
-    cv2.polylines(rgb, outlines, True, (0, 0, 255), thickness, cv2.LINE_AA)
+    for outline in outlines:
+        x, y, w, h = cv2.boundingRect(outline)
+        cv2.rectangle(rgb, (x, y), (x + w - 1, y + h - 1),
+                      (0, 0, 255), thickness, cv2.LINE_AA)
     return result, len(outlines)
 
 

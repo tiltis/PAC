@@ -51,6 +51,21 @@ def test_edge_outline_does_not_bleed_into_thermal_panel():
     assert np.array_equal(annotated[:, 480:], frame[:, 480:])
 
 
+def test_rotated_target_is_enclosed_by_rectangular_bbox_only_on_vis():
+    frame = _frame()
+    polygon = np.array([[240, 170], [300, 200], [270, 275], [210, 245]], np.int32)
+    cv2.fillConvexPoly(frame, polygon, _brown())
+    original = frame.copy()
+    annotated, count = annotate_collage(frame)
+    assert count == 1
+    # The enclosing rectangle's empty corners become red, not the polygon edge.
+    for x, y in [(210, 170), (300, 170), (210, 275), (300, 275)]:
+        assert tuple(annotated[y, x]) == (0, 0, 255)
+    assert np.array_equal(annotated[180:265, 220:290], original[180:265, 220:290])
+    assert np.array_equal(annotated[:, 480:], original[:, 480:])
+    assert np.array_equal(frame, original)
+
+
 def test_depth_only_box_produces_no_rgb_overlay_and_keeps_jpeg_exactly():
     frame = _frame()
     cv2.rectangle(frame, (970, 120), (1130, 260), _brown(), -1)
@@ -86,6 +101,32 @@ def test_green_tape_does_not_cut_holes_into_box_outline():
     annotated, count = annotate_collage(frame)
     assert count == 1
     assert np.array_equal(annotated[190:250, 85:110], frame[190:250, 85:110])
+
+
+def test_wrapping_tape_splitting_small_brown_faces_still_selects_one_white_area_box():
+    frame = _frame()
+    cv2.rectangle(frame, (50, 210), (185, 345), (0, 0, 255), -1)
+    cv2.rectangle(frame, (295, 210), (430, 345), (255, 0, 0), -1)
+    cv2.rectangle(frame, (225, 200), (290, 265), _brown(), -1)
+    green = tuple(int(x) for x in cv2.cvtColor(np.uint8([[[80, 170, 180]]]),
+                                            cv2.COLOR_HSV2BGR)[0, 0])
+    cv2.rectangle(frame, (238, 200), (266, 259), green, -1)
+    cv2.rectangle(frame, (225, 219), (290, 230), green, -1)
+    annotated, count = annotate_collage(frame, central_white_only=True)
+    assert count == 1
+    assert tuple(annotated[200, 225]) == (0, 0, 255)
+    assert tuple(annotated[265, 290]) == (0, 0, 255)
+    assert np.array_equal(annotated[:, 480:], frame[:, 480:])
+
+
+def test_green_object_without_cardboard_evidence_is_not_a_box():
+    frame = _frame()
+    green = tuple(int(x) for x in cv2.cvtColor(np.uint8([[[80, 170, 180]]]),
+                                            cv2.COLOR_HSV2BGR)[0, 0])
+    cv2.rectangle(frame, (220, 170), (320, 280), green, -1)
+    annotated, count = annotate_collage(frame)
+    assert count == 0
+    assert np.array_equal(annotated, frame)
 
 
 def test_explicit_rgb_width_supports_alternate_layout():

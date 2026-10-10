@@ -604,12 +604,14 @@ let liveOn = true;
 const LIVE_FRAME_MS = 1000 / 15;
 let liveStartedAt = 0, liveTimer = null;
 const localPreview = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+// Optional deployment override for the display service; no robot endpoint.
+const previewUrl = document.querySelector('meta[name="pac-preview-url"]')?.content || 'http://127.0.0.1:8002/camera.jpg';
 let outlinedPreview = localPreview;
 function liveNext() {
   clearTimeout(liveTimer);
   if (!liveOn || document.hidden) return;
   liveStartedAt = performance.now();
-  const prefix = outlinedPreview ? 'http://127.0.0.1:8002/camera.jpg' : '/sensor-live';
+  const prefix = outlinedPreview ? previewUrl : '/sensor-live';
   $('live').src = prefix + '?specimen_id=' + encodeURIComponent($('specimen').value.trim()) + '&t=' + Date.now();
 }
 function scheduleLive(delay) {
