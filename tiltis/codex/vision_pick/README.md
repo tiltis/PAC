@@ -77,3 +77,12 @@ Claude 현장 코드의 턱 TCP 오프셋·높이/접근 조절·가까운 IK �
 8000의 기존 reasons/features를 웹의 PacReasons로 설명한다. 예: 테이프 1개 누락(2/3개 관측), 아랫면 결함(벌어짐 의심). 미검증/측정 불가를 결함으로 바꾸지 않으며 면간 누락 개수를 합산하지 않는다. 8002의 최근 판정은 저장 기록이고 현재 라이브 물체와 자동 연결하지 않는다. 현재 실행 오류는 별도로 표시한다. station/web/index.html은 FileResponse라 UI 파일 적용 후 새로고침만 필요하고 로봇 서버 재시작은 필요 없다. 노트북 station 카메라는8002를 사용하고 실패하면 원본 /sensor-live로 돌아간다. 기본8000/8001 포트 기준이며 원격 브라우저는 원본 영상을 사용한다.
 
 UI 테스트: `node --test station/tests/test_reason_presentation.cjs` (공유 시스템 폴더). Python 표시/API 테스트: `python -m pytest tests/test_box_overlay.py tests/test_preview_server.py -q --rootdir . --confcutdir . -o addopts=` (이 폴더).
+
+
+## 2번 공급 팔의 기존 고정 상태 재연결
+
+`retained_feeder.py`는 설치된 Claude의 `station/feeder_server.py`와 `feeder.py` 공급/API 구현을 재사용하는 별도 진입점이다. 해당 설치와 기존 `RED_POSES`, `RED_CALIB_DIR/<RED_ROBOT_ID>.json`이 필요하다. 시작 시 SDK configure/hold를 호출하지 않고 `RetainedSo101Robot`의 읽기 기반 연결로 보정 일치·6개 모터·이미 켜진 토크·위치 제어 모드를 확인한다. 꺼진 토크나 불일치를 자동 복구하지 않는다. 기존 공급 관절 제한·더미 진행 상태를 유지하고 공급/HOME/집게 동작을 자동 실행하지 않는다. 종료 때도 토크를 유지한다.
+
+현장 COM10(USB serial 5AE6080853), so101_purple2의 재연결은 `start_retained_feeder.ps1`를 사용한다. 기존 feeder PID25712, COM10 장치, 두 팔의 대기 및 자동 연속 비활성 상태를 확인한 후 2번만 재시작한다. PID가 달라졌다면 실제 프로세스를 확인해야 하며 임의로 다른 PID를 넣지 않는다. 1번/카메라 서버를 종료하지 않는다. 현재 PowerShell의 실행 정책으로 로컬 스크립트가 막히면 사용자 창에서 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start_retained_feeder.ps1`로 한 번 실행할 수 있다. 영구 실행 정책을 변경하지 않는다.
+
+`GET /api/robot/connection`은 대기 중인 2번에서 현재 관절을 읽는다. 동작 중에는409, 통신 실패는503이다. 연결 확인은 이동/집기 성공이나 충돌·속도 검증을 의미하지 않는다. 웹 공급 조작은 기존 통합 워크스테이션 `/hub`를 사용한다. 구 `start_feeder_server.ps1`는 일반 SDK 연결(토크 전환)을 하므로 이 진입점과 다르다.

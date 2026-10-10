@@ -472,3 +472,20 @@ station/app.py의 기존 /sensor-live에 선택적 boxes 인자를 추가했다.
 미완료: 실행 중 station Python은 구 handler를 캐시해 /sensor-live?boxes=1 응답에 X-Box-Candidates가 없다. 따라서 현재 웹 카메라는 복구됐지만 새 같은 출처 바운딩 박스는 아직 활성화되지 않았다. 새 코드 활성화를 위한 guarded 스테이션 종료/재시작은 자동 승인 검토가 차단했다(구체적인 이유 미제공). 사용자에게 기존 run_taught_station.ps1 수동 실행을 요청했고, 사용자 “너가 해” 재승인 뒤 동일 명령을 한 번 재시도했지만 다시 차단됐다. 종료/재시작 우회는 하지 않았다. 검사 완료 후 사용자가 직접 기존 스크립트로 재시작하면 boxes=1 헤더와 실제 화면을 확인해야 한다. 기존8001/8002 프레임 최적화 활성화도 별도 대기 상태다.
 
 증거/복구: C:/Users/tilti/PAC2026_data/camera_sameorigin_20261010/ 의 index.html.before, app.py.before, camera_before_backend_reload.png, cameras_restored_final.png, verification.json. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 수정/커밋에서 제외한다.
+
+
+## 2026-10-10 — 2번 COM10 공급 팔 재연결 준비
+
+사용자가 2번 로봇팔 연결을 요청했다. 현장 feeder_server.py/feeder.py/start_feeder_server.ps1와 robot.py, hub.py, 기존 Codex retained_robot/robot_status 및 양쪽 인계/지침을 먼저 읽었다. 2번은 COM10 CH343 USB serial5AE6080853, robot_id so101_purple2이며 기존 보정은 C:/PAC_knu/red_arm/outputs/assistant-arm/calibration/so101_purple2.json(6개 모터)이다. 1번 COM8 serial5AE6083193와 구별했다. 기본 SDK 캐시에는 2번 보정이 없고 설치 LeRobot는0.6.1이다. 8004의 기존 worker25712(parent12144)는 idle/error이고 last_result에 USB 해제 ClearCommError 이후 Port is in use 오류가 있다. 1번과 자동 연속은 작업 당시 대기였다. USB 단절 이후 구 serial handle/SDK 사용 표시가 남은 상태로 추정하며 별도 포트를 동시에 열지 않았다.
+
+기존 SDK connect/configure는 토크를 잠깐 끄므로 그대로 재시작하지 않고 이미 검증한 읽기 기반 RetainedSo101Robot을 재사용했다. codex/tools/robot_status.make_reader에 선택적 calibration_dir를 추가했고 retained_robot이 설치된 So101Robot의 지정 디렉터리를 전달한다. 구 공유 robot.py에 calibration_dir가 없는 호환성 실패를 mock 테스트에서 재현해 getattr 기본값으로 수정했다. 기본 보정 경로와 기존 1번 실행 동작은 유지한다.
+
+새 codex/vision_pick/retained_feeder.py는 현장 peer 공급 서비스/API를 재사용하고 기존 poses_red/보정 관절 제한/FEED_STATE를 그대로 사용한다. startup lifespan만 읽기 기반 connect와 토크 유지 disconnect로 교체해 일반 SDK connect/configure/자동 hold/토크 전환을 실행하지 않는다. /api/robot/connection은 service lock으로 다른 동작과 직렬화하여 대기에서 현재 관절을 읽고, busy409/통신 실패503으로 응답한다. 꺼진 토크·보정 불일치를 자동 보정하거나 모터를 켜지 않고 실패한다. 공급/집기/HOME/새 티칭은 시작하지 않는다. source에 없는 현장 feeder_server.py/feeder.py 설치 의존성을 README에 명시했다.
+
+자동 검사/두 팔 대기·8004 PID/명령행을 확인해 2번 worker25712만 종료하고 새 진입점을 시작하는 명령을 요청했지만 자동 승인 검토에서 차단됐다(구체적 이유 미제공). 명령 전체가 실행되지 않았고 기존 2번 프로세스는 유지됐다. 다른 도구/명령으로 재시작을 우회하지 않았다. 사용자 수동 실행용 start_retained_feeder.ps1를 작성하고 PowerShell AST 문법 검사만 했다. USB serial, 보정/자세 파일, 두 팔/자동 운전 상태, 기존 feeder PID/명령행을 검사하고 2번만 연결한다. 1번/센서/preview는 건드리지 않으며 기존 더미 단계도 리셋하지 않는다.
+
+검증: .venv-station Python -m pytest tiltis/codex/vision_pick/tests/test_retained_robot.py tiltis/codex/vision_pick/tests/test_retained_feeder.py tiltis/codex/tools/tests/test_robot_status.py --confcutdir=tiltis/codex -q →26 passed,4 subtests passed,1 기존 Starlette warning(5.89s). custom calibration 전달/쓰기 없는 연결, peer startup hold 미실행, 기존 공급 route 보존, busy 별도읽기 금지 및 연결 오류503을 검증한다. 실제 현장 factory 생성 preflight에서 COM10/id/보정파일/pose 존재/5개 arm 관절 제한/3단 설정을 확인했으며 bus.is_connected=False였다. 아직 실제 관절 조회·재연결 성공·이동을 실행했다고 주장하지 않는다.
+
+사용자가 PowerShell 창 열기를 요청해 Windows PowerShell을 해당 vision_pick 폴더에서 표시했다(PID25124; 복구명령 자동 입력/실행 없음). 사용자가 직접 실행하려 했으나 실행 정책 PSSecurityException으로 스크립트 자체가 실행되지 않았다고 보고했다. NoProfile와 1회 child process의 -ExecutionPolicy Bypass -File 실행 명령을 안내했다. Microsoft Learn about_Execution_Policies의 세션 범위를 확인했고 영구 정책/신뢰 게시자 변경을 도구로 하지 않았다. 사용자 새 실행 결과와 /api/robot/connection의 실제 응답 확인이 남아 있다. 이 시점 해당 endpoint는 기존 server404다.
+
+기존 미커밋 codex/vision_pick/bootstrap.py는 이번 수정/커밋에서 제외한다. 실제 명령이 차단됐으므로 before.json/server 로그/connection.json이 생성됐다고 주장하지 않는다. 수동 실행이 성공하면 C:/Users/tilti/PAC2026_data/arm2_reconnect_20261010/에 생성된다.

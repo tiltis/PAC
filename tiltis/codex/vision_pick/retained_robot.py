@@ -35,7 +35,9 @@ class RetainedSo101Robot(So101Robot):
         owns_bus = False
         try:
             # Shared reader pins the audited SDK and disables torque-off cleanup.
-            reader = make_reader(self.port, self.robot_id)
+            calibration_dir = getattr(self, "calibration_dir", None)
+            extra = {"calibration_dir": calibration_dir} if calibration_dir is not None else {}
+            reader = make_reader(self.port, self.robot_id, **extra)
             bus = reader.bus
             if bus.is_connected:
                 raise RobotError("이미 열린 버스는 점유하거나 닫지 않습니다")

@@ -147,3 +147,19 @@ def test_sdk_version_failure_never_opens_port(setup, monkeypatch):
     with pytest.raises(module.RobotError, match="0.6.1"):
         robot.connect()
     assert bus.calls == [] and robot._robot is None
+
+
+def test_custom_arm_calibration_is_forwarded_without_writes(setup, monkeypatch, tmp_path):
+    robot, bus, reader, _ = setup
+    selected = tmp_path / 'arm2-calibration'
+    robot.calibration_dir = selected
+    calls = []
+
+    def factory(port, rid, *, calibration_dir):
+        calls.append((port, rid, calibration_dir))
+        return reader
+
+    monkeypatch.setattr(module, 'make_reader', factory)
+    robot.connect()
+    assert calls == [('FAKE', 'test-arm', selected)]
+    assert all(call[0] in ('connect', 'read') for call in bus.calls)

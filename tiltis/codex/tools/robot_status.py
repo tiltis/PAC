@@ -13,13 +13,14 @@ from pathlib import Path
 SUPPORTED_SDK = "0.6.1"
 
 
-def make_reader(port: str, robot_id: str):
+def make_reader(port: str, robot_id: str, calibration_dir: Path | None = None):
     version = importlib.metadata.version("lerobot")
     if version != SUPPORTED_SDK:
         raise RuntimeError(f"점검한 SDK는 lerobot {SUPPORTED_SDK}; 설치 버전은 {version}")
     from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+    extra = {"calibration_dir": Path(calibration_dir)} if calibration_dir is not None else {}
     config = SO101FollowerConfig(port=port, id=robot_id, cameras={}, use_degrees=True,
-                                 disable_torque_on_disconnect=False)
+                                 disable_torque_on_disconnect=False, **extra)
     return SO101Follower(config)  # 생성만 한다. robot.connect/configure/calibrate는 호출하지 않는다.
 
 
