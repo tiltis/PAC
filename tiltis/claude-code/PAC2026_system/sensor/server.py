@@ -217,13 +217,13 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
         return {"background": True, "association": obj[1], "detections": objects.to_dict(obj[0])}
 
     @app.get("/live.jpg")
-    def live_jpg(specimen_id: str = ""):
+    def live_jpg(specimen_id: str = "", fast: bool = False):
         """RGB · 열화상 · (켜져 있으면) 깊이 3화면 실시간 합성. 촬영을 막지 않고 최신 프레임만 읽는다."""
         vis, lwir = state["rig"].preview()
         if vis is None:
             raise HTTPException(503, "RGB 프레임 없음")
         lines = []
-        if specimen_id:
+        if specimen_id and not fast:
             info, found = marker.check(vis, specimen_id)
             vis = marker.draw(vis, found, info["marker_expected"])
             lines.append(f"{specimen_id} marker {info['marker_ids']} match={info['marker_match']}")
@@ -232,7 +232,9 @@ def create_app(rig_factory, depth_factory=None, depth_required=False, depth_max_
             f = state["depth"].latest()
             depth = (f.raw, f.scale_mm) if f is not None else (None, None)
             depth_mm = f.raw.astype(np.float32) * f.scale_mm if f is not None else None
-        obj = object_check(vis, lwir, depth_mm)
+        # The display path needs current pixels, not repeated full-resolution
+        # marker/association analysis. Inspection and locator routes keep it.
+        obj = None if fast else object_check(vis, lwir, depth_mm)
         ok, buf = cv2.imencode(".jpg", live.compose(vis, lwir, depth, lines, obj), [cv2.IMWRITE_JPEG_QUALITY, 75])
         return Response(buf.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 

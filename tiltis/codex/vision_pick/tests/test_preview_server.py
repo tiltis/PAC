@@ -53,8 +53,9 @@ def test_summary_uses_recorded_decision_not_a_newer_unfinished_run(tmp_path, mon
         else:
             raise AssertionError(url)
         return httpx.Response(200, json=data, request=httpx.Request('GET', url))
-    monkeypatch.setattr(httpx, 'get', get)
-    client = TestClient(create_preview_app(tmp_path))
+    app = create_preview_app(tmp_path)
+    monkeypatch.setattr(app.state.preview_http, 'get', get)
+    client = TestClient(app)
     data = client.get('/api/inspection-summary').json()
     assert data['motion_enabled'] is False
     assert data['status']['current']['specimen_id'] == 'new'
@@ -67,8 +68,9 @@ def test_summary_connection_failure_does_not_return_cached_decision(tmp_path, mo
     import httpx
     def unavailable(*args, **kwargs):
         raise httpx.ConnectError('station offline')
-    monkeypatch.setattr(httpx, 'get', unavailable)
-    client = TestClient(create_preview_app(tmp_path))
+    app = create_preview_app(tmp_path)
+    monkeypatch.setattr(app.state.preview_http, 'get', unavailable)
+    client = TestClient(app)
     assert client.get('/api/inspection-summary').status_code == 503
 
 
@@ -88,11 +90,33 @@ def test_camera_outlines_one_table_box_without_polling_robot_or_depth_locator(tm
     def get(url, **kwargs):
         calls.append(url)
         assert url.endswith('/live.jpg')
+        assert kwargs['params']['fast'] == 1
         return httpx.Response(200, content=jpeg.tobytes(), request=httpx.Request('GET', url))
-    monkeypatch.setattr(httpx, 'get', get)
-    client = TestClient(create_preview_app(tmp_path))
+    app = create_preview_app(tmp_path)
+    monkeypatch.setattr(app.state.preview_http, 'get', get)
+    client = TestClient(app)
     result = client.get('/camera.jpg')
     assert result.status_code == 200
     assert result.headers['x-box-candidates'] == '1'
     assert result.headers['x-overlay-role'] == 'display-only-central-white-box'
     assert calls == ['http://127.0.0.1:8001/live.jpg']
+
+
+def test_camera_failure_after_good_frame_is_not_served_as_cached_video(tmp_path, monkeypatch):
+    import cv2
+    import httpx
+    import numpy as np
+    app = create_preview_app(tmp_path)
+    _, jpeg = cv2.imencode('.jpg', np.full((360, 1506, 3), 225, np.uint8))
+    calls = []
+    def unavailable(*args, **kwargs):
+        calls.append(args[0])
+        if len(calls) == 1:
+            return httpx.Response(200, content=jpeg.tobytes(), request=httpx.Request('GET', args[0]))
+        raise httpx.ConnectError('sensor offline')
+    monkeypatch.setattr(app.state.preview_http, 'get', unavailable)
+    with TestClient(app) as client:
+        assert client.get('/camera.jpg').status_code == 200
+        assert client.get('/camera.jpg').status_code == 503
+    assert len(calls) == 2
+    assert app.state.preview_http.is_closed

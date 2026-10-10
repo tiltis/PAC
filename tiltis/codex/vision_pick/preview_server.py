@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
 import json
 import time
 from pathlib import Path
@@ -32,9 +33,12 @@ PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewp
 <img src="/sam-preview.png"><details><summary>SAM 사진 검증 상세</summary><pre id="samResult">저장 결과 확인 중…</pre></details></details>
 <script src="/inspection-presentation.js"></script><script>
 const cam=document.getElementById('cam');
-function nextCamera(){cam.src='/camera.jpg?t='+Date.now()}
-cam.onload=()=>{document.getElementById('cameraNote').textContent='빨간 테두리: 가운데 흰 영역의 상자 1개 · 양쪽 색 영역이 확인되지 않거나 후보가 여러 개면 표시를 보류합니다. 판정 색상과 별개입니다.';setTimeout(nextCamera,800)};
-cam.onerror=()=>{document.getElementById('cameraNote').textContent='카메라 연결 확인 중…';setTimeout(nextCamera,2000)};
+let cameraStarted=performance.now(),cameraTimer=null;
+function nextCamera(){clearTimeout(cameraTimer);if(document.hidden)return;cameraStarted=performance.now();cam.src='/camera.jpg?t='+Date.now()}
+function scheduleCamera(delay){clearTimeout(cameraTimer);if(!document.hidden)cameraTimer=setTimeout(nextCamera,delay)}
+cam.onload=()=>{document.getElementById('cameraNote').textContent='빨간 테두리: 가운데 흰 영역의 상자 1개 · 양쪽 색 영역이 확인되지 않거나 후보가 여러 개면 표시를 보류합니다. 판정 색상과 별개입니다.';scheduleCamera(Math.max(0,1000/15-(performance.now()-cameraStarted)))};
+cam.onerror=()=>{document.getElementById('cameraNote').textContent='카메라 연결 확인 중…';scheduleCamera(2000)};
+document.addEventListener('visibilitychange',()=>{clearTimeout(cameraTimer);if(!document.hidden)nextCamera()});
 async function check(){result.textContent='깊이 측정 중…';try{let r=await fetch('/api/preview');result.textContent=JSON.stringify(await r.json(),null,2)}catch(e){result.textContent=String(e)}}
 async function refreshDecision(){
  const title=document.getElementById('decision'), list=document.getElementById('decisionReasons'), source=document.getElementById('decisionSource');
@@ -75,7 +79,19 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
     he = handeye.load(site / "station/calib/handeye.json")
     reader = sensor or SensorClient(sensor_url)
     picker = GuardedVisionPicker(reader, he, dry_run=True, cfg=cfg)
-    app = FastAPI(title="PAC integrated preview (no motion)")
+    # Reuse local connections across frames instead of constructing an HTTP
+    # client (and its certificate store) for every image and result query.
+    upstream = httpx.Client(timeout=5, trust_env=False)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            upstream.close()
+
+    app = FastAPI(title="PAC integrated preview (no motion)", lifespan=lifespan)
+    app.state.preview_http = upstream
 
     @app.get('/inspection-presentation.js')
     def inspection_presentation():
@@ -91,13 +107,13 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
         # Existing station results only. Never calls inspection or motion endpoints.
         try:
             base = station_url.rstrip('/')
-            status = httpx.get(base + '/api/status', timeout=3)
+            status = upstream.get(base + '/api/status', timeout=3)
             status.raise_for_status()
-            runs = httpx.get(base + '/api/runs', params={'limit': 30}, timeout=3)
+            runs = upstream.get(base + '/api/runs', params={'limit': 30}, timeout=3)
             runs.raise_for_status()
             decision = next((dict(r) for r in runs.json() if r.get('final_verdict')), None)
             if decision:
-                inspections = httpx.get(base + f"/api/runs/{int(decision['id'])}/inspections", timeout=3)
+                inspections = upstream.get(base + f"/api/runs/{int(decision['id'])}/inspections", timeout=3)
                 inspections.raise_for_status()
                 decision['inspections'] = inspections.json()
             return {'status': status.json(), 'decision': decision, 'motion_enabled': False}
@@ -127,7 +143,8 @@ def create_preview_app(site_dir, sensor_url="http://127.0.0.1:8001", sensor=None
     @app.get("/camera.jpg")
     def camera(specimen_id: str = ''):
         try:
-            r = httpx.get(sensor_url.rstrip("/") + "/live.jpg", params={'specimen_id': specimen_id}, timeout=5)
+            r = upstream.get(sensor_url.rstrip("/") + "/live.jpg",
+                             params={'specimen_id': specimen_id, 'fast': 1})
             r.raise_for_status()
             from box_overlay import annotate_jpeg
             data, count = annotate_jpeg(r.content, central_white_only=True)

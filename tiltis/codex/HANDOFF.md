@@ -401,3 +401,16 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 실제 /health ok=true, vis/lwir/depth=true, live모드와 Gemini RGBD ready를 확인했다. 8000 브라우저를 새로고침해 시료/상자/세션을 보존하고 자동으로 img 로드 완료·1506x360·8002 camera.jpg·상자 위치 테두리 표시 상태를 확인했다. 세 카메라가 보이는 실제 스크린샷을 저장했다. 공유/현장 inline JavaScript 파싱 통과. 단순 표시 초기값 수정이라 새 테스트는 추가하지 않았다. 카메라 원본 촬영/현재 로봇 검사를 새로 실행하지 않아 냉매 판정과 로봇 완주 검증을 주장하지 않는다.
 
 증거/복구본: C:/Users/tilti/PAC2026_data/station_camera_restore_20261010/cameras_restored.png, health.json, index.before.html, sensor.stdout.log, sensor.stderr.log. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 변경에서 제외한다.
+
+
+## 2026-10-10 — 영상 갱신 지연 개선과 카메라 아래 문구 삭제
+
+사용자가 웹 영상 프레임 드랍과 카메라 아래 두 안내 문구 삭제를 요청했다. 기존 index.html/preview_server.py는 프레임 응답 뒤 800ms를 더 기다리고 preview는 매 요청마다 HTTP 클라이언트를 새로 만들었다. live.jpg는 화면 갱신에도 전체 마커/센서 association 분석을 수행했다. 원래 검사·로봇 코드를 확인한 뒤 표시 경로만 수정했다.
+
+변경 파일: codex/vision_pick/preview_server.py 및 tests/test_preview_server.py, 상대 claude-code/PAC2026_system/sensor/server.py 및 sensor/tests/test_server.py, station/web/index.html. 화면 요청은 직전 프레임 완료 후 최대15fps 주기로 예약하고 숨겨진 탭은 요청을 멈춘다. preview는 수명이 관리되는 httpx.Client를 재사용하며 live.jpg?fast=1을 요청한다. fast 표시 경로는 반복 마커/association 분석을 생략하고 기존 기본 live.jpg 및 inspect/locator 동작을 유지한다. 연결 실패는 이전 영상 캐시를 정상 응답으로 돌려주지 않는다. 가운데 흰 영역의 상자 하나만 표시하는 기존 윤곽 조건은 유지한다. outlineStatus 요소/CSS/JavaScript 참조와 '빨간 테두리는…불합격 표시와 별개' 문단을 함께 제거했다.
+
+실제 검증: .venv-station Python -m pytest tiltis/codex/vision_pick/tests/test_preview_server.py tiltis/codex/vision_pick/tests/test_box_overlay.py --confcutdir=tiltis/codex/vision_pick -q →37 passed,1 warning(7.27s). .venv-sensor Python -m pytest sensor/tests/test_server.py --confcutdir=sensor -q -k 'live_jpg_and_marker_recorded or fast_live_image' →2 passed,27 deselected,1 warning(5.91s). 최초 confcutdir 미지정 실행은 루트 conftest의 미설치 LeRobot import에서 실패해 수집 범위를 교정했다. 마지막 문구 삭제 후 공유/현장 HTML inline JavaScript 파싱 통과. fake 카메라/API 테스트이며 실제 로봇 검증이 아니다.
+
+현장 HTML은 최신 Claude 강제 HOME/H·hub 기능과 나머지 동작을 보존한 부분 수정으로 적용했고 실제8000을 새로고침해 두 문구 삭제와 세 카메라 표시를 확인했다. 센서 파일에도 fast 표시 경로를 부분 적용했지만 기존 Python 프로세스는 구 코드를 캐시하고 있어 백엔드 최적화는 아직 활성화되지 않았다. 실행 중 센서8001 PID32384와 미리보기8002 PID20996의 종료/재시작 명령은 자동 승인 검토가 차단했다(구체적인 이유 미제공). 사용자 수동 종료 확인 뒤에도 같은 PID/listener와 구 OpenAPI를 확인해 새 프로세스 시작을 취소했다. 중복 카메라 소유자를 시작하거나 로봇8000을 종료하지 않았다. 수동 명령의 실제 오류/출력 확인 및 두 포트 해제 후 동일 venv/인자로 시작하고 성능을 재측정해야 한다.
+
+성능 증거: C:/Users/tilti/PAC2026_data/station_video_fps_20261010/before.json에서 sensor 응답 중앙값356.6ms, preview534.1ms(각5개 요청). 화면 갱신 대기만 제거한 뒤 브라우저 요청 주기는 약1.31회/s였으며 새 백엔드의 실제fps 또는15fps 달성을 주장하지 않는다. 같은 폴더에 sensor.before.py, index.before.html, browser_pacing.json, camera_captions_removed.png가 있다. 기존 미커밋 bootstrap.py는 이번 수정/커밋에서 제외한다.

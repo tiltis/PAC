@@ -150,6 +150,27 @@ def test_marker_check_logic():
     assert marker.check(canvas, "TEST")[0]["marker_match"] is None
 
 
+def test_fast_live_image_skips_diagnostics_without_changing_default(tmp_path, monkeypatch):
+    import cv2
+    calls = []
+    original = server.marker.check
+    def marker_check(*args, **kwargs):
+        calls.append('marker')
+        return original(*args, **kwargs)
+    def background():
+        calls.append('association')
+        return None
+    monkeypatch.setattr(server.marker, 'check', marker_check)
+    monkeypatch.setattr(server.objects, 'load_background_cached', background)
+    with client(tmp_path) as c:
+        fast = c.get('/live.jpg', params={'specimen_id':'S01', 'fast':1})
+        assert fast.status_code == 200
+        assert cv2.imdecode(np.frombuffer(fast.content, np.uint8), cv2.IMREAD_COLOR) is not None
+        assert calls == []
+        assert c.get('/live.jpg', params={'specimen_id':'S01'}).status_code == 200
+        assert calls == ['marker', 'association']
+
+
 def test_object_endpoints_with_fake_rig(tmp_path, monkeypatch):
     import objects
     monkeypatch.setattr(objects, "CALIB_DIR", tmp_path / "calib")
