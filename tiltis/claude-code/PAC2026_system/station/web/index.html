@@ -219,9 +219,9 @@
 
   <div class="col">
     <section class="card">
-      <div class="card-head"><h2>실시간 카메라</h2><button id="liveBtn" type="button" class="small">켜기</button></div>
+      <div class="card-head"><h2>실시간 카메라</h2><button id="liveBtn" type="button" class="small">끄기</button></div>
       <div class="card-body">
-        <div class="camera"><span id="liveHint">RGB · 열화상 · 깊이 화면을 보려면 켜기를 누르십시오</span><img id="live" alt="실시간 카메라" hidden></div>
+        <div class="camera"><span id="liveHint" hidden>카메라 연결 확인 중…</span><img id="live" alt="실시간 카메라"></div>
         <p id="outlineStatus" class="note"></p>
         <p class="note">빨간 테두리는 상자 위치 표시이며 불합격 표시와 별개입니다.</p>
       </div>
@@ -445,7 +445,7 @@ $('start').onclick = () => {
 };
 $('pause').onclick = () => post('/api/pause');
 // 실시간 카메라: 이전 이미지가 다 받아진 뒤에 다음 요청 (요청이 쌓이지 않게)
-let liveOn = false;
+let liveOn = true;
 const localPreview = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 let outlinedPreview = localPreview;
 function liveNext() {
@@ -602,6 +602,6 @@ async function pollSensor() {
 
 setInterval(poll, 500);
 setInterval(pollSensor, 5000);
-poll(); pollSensor(); loadHistory();
+poll(); pollSensor(); loadHistory(); liveNext();
 </script>
 </body>

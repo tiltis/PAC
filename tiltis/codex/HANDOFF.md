@@ -390,3 +390,14 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 사용자 화면 요청에 따라 상단 집기 경로 배지와 taught_station.py가 삽입하던 긴 경로 안내를 제거했다. 변경 파일은 codex/vision_pick/taught_station.py와 상대 station/web/index.html이다. 기존 실행 서버는 Python 함수를 이미 로드했으므로 현장 HTML에 legacy #taught-path 숨김/DOM 제거를 함께 넣어 재시작 없이 즉시 적용했다. 다음 실행에서는 wrapper가 해당 안내를 삽입하지 않는다. /pick-path의 과거 링크는 /로 이동한다. 로봇 경로·API·실제 로봇 표시·비상정지 안내는 변경하지 않았다.
 
 현장 파일을 백업하고 동시 변경 유무를 확인해 해당 3개 UI 수정만 적용했다. 현장 강제 HOME/H 버튼 등 최근 Claude 변경을 보존했고 로봇/센서 서버 재시작과 이동 명령은 없었다. 현재 열린 8000을 새로고침한 실제 DOM에서 경로 배지와 aside 제거를 확인하고 시료/상자 선택을 보존했다. wrapper AST와 공유/현장 inline JavaScript 파싱 통과. 단순 표시 삭제라 새 테스트는 추가하지 않았다. 증거 C:/Users/tilti/PAC2026_data/station_header_clean_20261010/header_clean.png, index.before.html. 기존 미커밋 bootstrap.py는 이번 작업/커밋에서 제외한다.
+
+
+## 2026-10-10 — 스테이션 카메라 복구와 자동 표시
+
+사용자가 스테이션 카메라가 나오지 않는다고 보고했다. 8000은 idle/hardware로 정상이나 8001 연결 거부, 8002 camera.jpg는503이었다. 실행 프로세스 목록에서 sensor/server.py와 별도 카메라 capture 프로그램이 없음을 확인했다. sensor 종료 원인은 이번 작업에서 확인하지 못했다. .venv-sensor의 기존 sensor/server.py를 --port8001 --depth --depth-rgb --data-root C:/Users/tilti/PAC2026_data로 숨김 실행해 복구했다(부모PID37264, 실제리스너32384). 기존 robot8000, preview8002, 별도 live_view를 재시작하지 않았고 로봇 이동 요청은 없다.
+
+상대 station/web/index.html은 새로고침마다 liveOn=false여서 화면이 다시 꺼졌다. 초기 켜기/숨김/false 상태를 끄기/표시/true로 바꾸고 초기 liveNext()를 호출하도록 수정했다. 사용자가 수동 끄기는 계속 가능하다. 현장 파일을 백업한 뒤 네 항목만 동일 적용했고 최근 Claude 강제 HOME 코드 등은 그대로 유지했다. 상단 안내 제거와 의미별 검사 카드를 유지한다.
+
+실제 /health ok=true, vis/lwir/depth=true, live모드와 Gemini RGBD ready를 확인했다. 8000 브라우저를 새로고침해 시료/상자/세션을 보존하고 자동으로 img 로드 완료·1506x360·8002 camera.jpg·상자 위치 테두리 표시 상태를 확인했다. 세 카메라가 보이는 실제 스크린샷을 저장했다. 공유/현장 inline JavaScript 파싱 통과. 단순 표시 초기값 수정이라 새 테스트는 추가하지 않았다. 카메라 원본 촬영/현재 로봇 검사를 새로 실행하지 않아 냉매 판정과 로봇 완주 검증을 주장하지 않는다.
+
+증거/복구본: C:/Users/tilti/PAC2026_data/station_camera_restore_20261010/cameras_restored.png, health.json, index.before.html, sensor.stdout.log, sensor.stderr.log. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 변경에서 제외한다.
