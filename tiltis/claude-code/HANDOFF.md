@@ -386,3 +386,10 @@ station/app.py의 기존 /sensor-live에 선택적 boxes 인자를 추가했다.
 사용자가 PowerShell 창 열기를 요청해 Windows PowerShell을 해당 vision_pick 폴더에서 표시했다(PID25124; 복구명령 자동 입력/실행 없음). 사용자가 직접 실행하려 했으나 실행 정책 PSSecurityException으로 스크립트 자체가 실행되지 않았다고 보고했다. NoProfile와 1회 child process의 -ExecutionPolicy Bypass -File 실행 명령을 안내했다. Microsoft Learn about_Execution_Policies의 세션 범위를 확인했고 영구 정책/신뢰 게시자 변경을 도구로 하지 않았다. 사용자 새 실행 결과와 /api/robot/connection의 실제 응답 확인이 남아 있다. 이 시점 해당 endpoint는 기존 server404다.
 
 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 수정/커밋에서 제외한다. 실제 명령이 차단됐으므로 before.json/server 로그/connection.json이 생성됐다고 주장하지 않는다. 수동 실행이 성공하면 C:/Users/tilti/PAC2026_data/arm2_reconnect_20261010/에 생성된다.
+
+
+### 후속 — 2번 실제 재연결 확인
+
+사용자 PowerShell 실행 단계 후 새 retained_feeder.py worker30452가 8004에 정상 시작한 것을 server.stderr.log에서 확인했다. /api/robot/connection HTTP200, connected=true, COM10/so101_purple2, 6개 관절의 실제 값과 retained_state를 반복 조회해 확인했다. 시작 단계의 보정 일치·6개 모터·토크 ON·위치 제어 모드 검사를 통과한 연결이며, 공급/HOME/집게·더미 리셋 요청을 Codex가 보내지 않았다. 기존 자동 재시작 차단은 사용자 직접 실행으로 해소됐으며 더 이상 미연결로 보고하지 않는다. 현장 1번은 기존 서버를 유지한다. 실제 공급 사이클/충돌/속도·정지 검증을 새로 실행한 것은 아니다.
+
+증거: C:/Users/tilti/PAC2026_data/arm2_reconnect_20261010/connection_verified.json, connection.json, before.json, server.stderr.log 및 server.stdout.log. 초기 실행 직후 프로세스가 소스의 이전 motion_started 메타데이터 이름을 캐시했지만 같은 startup 동작이다. 최신 소스는 혼동을 피하도록 startup_motion으로 명명하며 이 이름 변경만을 위해 재시작하지 않았다. 재시작 후에도 기존 /hub의 공급 조작을 사용한다. 코드 커밋 e8b9529는 origin/main에 push 완료했다.
