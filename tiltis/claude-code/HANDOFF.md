@@ -324,3 +324,16 @@ preview_server.py 안내/헤더 변경, overlay 및 preview API 테스트 합계
 검증: 공유/현장 inline JS 파싱과 중복 ID 없음, git diff --check 통과. 실제 VIS 저장 사진의 두 종이 중심은 기존 Python paper_hulls 중심과15px 이내로 일치했고, 없는 종이는 무표시, 좌우 바뀐 합성 장면은 색을 따라 표시, 상단 배경 색은 제외되는 오프라인 Node 검사를 통과했다. 별도 pytest나 로봇 테스트는 실행하지 않았다. 실제8000 브라우저에서 버튼으로 /hub 페이지 열림·회색 문구와 별도 목적지 카드 삭제·VIS 두 표시·빨강 클릭/파랑 키보드 포커스 설명·Escape 닫기·카메라 끄기 때 숨김/켜기 후 복구·콘솔 경고/오류 없음 확인. 입력 R021713/갈색/demo를 보존했다. 검사/HOME/공급/자동 연속 버튼은 누르지 않았다.
 
 증거: C:/Users/tilti/PAC2026_data/station_zone_ui_20261010/index.before.html, before.jpg, expected_zones.json, zone_helper_checks.json, workstation_button.png, vis_zone_labels.png, red_zone_tooltip.png. 이 색 기반 표시 검증은 실제 로봇 분류 위치/집기/냉매 정확도 검증이 아니다. 이전 영상 백엔드 최적화의 서버 재시작 대기는 별도로 남아 있다. 기존 미커밋 codex/vision_pick/bootstrap.py는 제외한다.
+
+
+## 2026-10-10 — 성수 검사_UI_03(f19d22d) 적용
+
+사용자가 지정한 f19d22d는 tiltis/PAC가 아닌 knu19css/PAC 저장소의 커밋이다. 원본: https://github.com/knu19css/PAC/commit/f19d22d969993edd2e0c3f05dc3aa66c68750bbd (검사_UI_03: 미디어 맞춤 표시와 조작 패널 축소). 정확한 원본 파일 tiltis_PAC2026/PAC2026_system/station/web/index.html, blob 918176f6c57fe7fe8b2ccc37900e830b6b3695d4를 가져와 적용했다. 별도 저장소이므로 origin/main 검색만으로 찾을 수 없었으며 다른 로봇 코드를 병합하지 않았다.
+
+공유 station/web/index.html과 현장 C:/PAC2026_system/station/web/index.html에 원본 UI_03 레이아웃과 미디어 표시를 반영했다. 조작 패널을360px로 줄이고 검사 실행/실시간 카메라, 진행 현황/포장 검사 결과를 각각 같은 행에 배치한다. 작은 화면에서는 한 열로 전환한다. 검사 사진은 카드에 상시 표시하며4:3 비율과 object-fit:contain으로 맞춘다. 분류 기준 i 설명, 전체 너비 HOME와 통합 워크스테이션 버튼을 원본대로 사용한다. 기존 VIS 실제 종이 위 정상/확인 필요 표시와 hover/focus 설명은 유지했다. UI 이외 파일, 센서 및 로봇 API 구현은 수정하지 않았다. 현장의 기존 /hub와 HOME endpoint를 전제로 하며 공유 app.py에 새로 구현하지 않았다.
+
+원본 semantic 판정 표시 helper는 기존 현장 것과 동일했다. 기존 start/pause/resume/abort/forceHome/키보드 action 블록과 후보의 byte 일치를 확인해 장비 요청을 보존했다. 현장 및 공유 파일을 각각 백업하고 원본 hash가 계속 일치할 때만 갱신했다. 서버 재시작 없이 HTTP GET에 반영됐으며 카메라/검사/HOME/공급/자동 연속 실행 버튼을 누르지 않았다.
+
+검증: Node --test tiltis/claude-code/PAC2026_system/station/tests/test_reason_presentation.cjs →18 passed,0 failed. inline JS 전체 파싱, 중복 ID 없음, 직접 DOM ID 참조 유효, git diff --check 통과. 실제8000 브라우저에서 입력 R021713/갈색/demo 보존, 3개 카메라 표시, i 설명 keyboard focus, 콘솔 경고/오류 없음 확인.1280x900에서 좌측360px와 우측853px 및 두 행의 y/height 일치, 기본438px 화면에서 한 열 전환을 확인했다. 검증용 viewport는 기본값으로 복원했다. 브라우저 확인 중 외부에서 R104829 검사가 시작됐으나 이번 작업에서 로봇을 구동하거나 해당 검사 성공을 검증하지 않았다. 새 검사 결과가 대기 상태였으므로 해당 검사의 실제 사진/판정 완료를 주장하지 않는다.
+
+증거/복구: C:/Users/tilti/PAC2026_data/seongsu_ui_f19d22d_20261010/ 에 live.before.html, repo.before.html, seongsu.index.html, candidate.html, integration.json, deployed.json, ui03_desktop.png, ui03_default.png. 적용 HTML SHA256:0c907898b82a4be356c19d3d1ba3c36f7306fceb059ad67a66e54c718459a1c2. 이전 영상 백엔드 최적화의 서버 재시작 대기는 별도로 남아 있다. 기존 미커밋 codex/vision_pick/bootstrap.py는 이번 변경 및 커밋에서 제외한다.

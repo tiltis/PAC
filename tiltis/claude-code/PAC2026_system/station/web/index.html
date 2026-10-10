@@ -91,28 +91,18 @@
          font-weight:600; font-size:13.5px; margin-top:12px; word-break:break-all; }
   .final { font-size:15.5px; font-weight:700; padding:12px 14px; border-radius:10px; margin-top:12px; color:#fff; background:#7b8696; line-height:1.45; }
   .final.blue { background:var(--blue); } .final.red { background:var(--warn); }
-  .decision-reasons { margin-top:12px; padding:12px 14px; border-radius:10px; background:var(--amber-soft); border:1px solid #ecd9a8; }
-  .decision-reasons.defect, .decision-reasons.error { background:var(--warn-soft); border-color:#f0c9c9; }
-  .decision-reasons.ok { background:var(--blue-soft); border-color:#c9d7f5; }
-  .decision-reasons strong { display:block; font-size:15px; margin-bottom:4px; }
-  .decision-reasons ul { margin:4px 0 0; padding-left:18px; font-size:13.5px; color:var(--ink-2); }
 
-  .workstation-link { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; padding:12px 16px;
-    border:1px solid #c9d7f5; border-radius:9px; background:var(--accent-soft); color:var(--accent); font-size:14px; font-weight:700; text-decoration:none; }
-  .workstation-link:hover { background:#dbe6ff; }
-  .workstation-link:focus-visible, .zone-tag:focus-visible { outline:3px solid #90afff; outline-offset:3px; }
-  .camera-wrap { position:relative; }
-  .camera { position:relative; background:#0c1524; border-radius:10px; overflow:hidden; aspect-ratio:3 / 1; display:grid; place-items:center; color:#7f8ea6; font-size:13.5px; }
+  .zones { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .zone { padding:12px 14px; border-radius:10px; border:1px solid; font-size:13px; line-height:1.5; }
+  .zone strong { display:flex; align-items:center; gap:8px; font-size:15px; margin-bottom:4px; }
+  .zone strong::before { content:""; width:10px; height:10px; border-radius:3px; background:currentColor; }
+  .zone.blue { border-color:#c9d7f5; background:var(--blue-soft); color:var(--blue); }
+  .zone.red { border-color:#f0c9c9; background:var(--warn-soft); color:var(--warn); }
+  .zone span { color:var(--ink-2); }
+
+  .camera { background:#0c1524; border-radius:10px; overflow:hidden; aspect-ratio:3 / 1; display:grid; place-items:center; color:#7f8ea6; font-size:13.5px; }
   .camera img { width:100%; height:100%; object-fit:contain; display:block; }
-  .zone-layer { position:absolute; pointer-events:none; }
-  .zone-hotspots { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-  .zone-hit { fill:transparent; pointer-events:all; cursor:help; }
-  .zone-tag { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; padding:3px 7px; border:1px solid rgba(255,255,255,.85);
-    border-radius:5px; box-shadow:0 1px 5px #0005; font-size:clamp(9px,1vw,12px); line-height:1.4; white-space:nowrap; cursor:help; }
-  .zone-tag.blue { background:#1f4fd8; } .zone-tag.red { background:#b82929; }
-  .zone-tooltip { position:absolute; z-index:4; width:min(270px,calc(100% - 16px)); padding:12px 14px; border-radius:9px; background:#fff;
-    color:var(--ink-2); border:1px solid var(--line); box-shadow:0 4px 20px #0c152433; font-size:12.5px; line-height:1.6; pointer-events:none; }
-  .zone-tooltip strong { display:block; margin-bottom:4px; color:var(--ink); font-size:13px; }
+
 
   .faces { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
   .face { border:1px solid var(--line); border-radius:10px; padding:12px; min-width:0; background:#fff; }
@@ -130,7 +120,6 @@
   .face.ok .check-result { color:var(--blue); }
   .face.review .check-result { color:var(--amber); }
   .check-evidence { margin-top:14px; }
-  .check-evidence summary { font-size:12px; color:var(--mute); cursor:pointer; margin-bottom:10px; }
 
   .scroll { overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:13.5px; }
@@ -143,6 +132,68 @@
   a.link:hover { background:var(--accent-soft); }
   @media (max-width:480px) { .field-row { grid-template-columns:1fr; } .kpis { grid-template-columns:1fr 1fr; } .camera { aspect-ratio:auto; min-height:120px; } }
   #taught-path { display:none; }
+
+  /* Paired panels share a grid row and a fixed header divider. */
+  main { align-items:stretch; }
+  .card-head { height:62px; padding:12px 18px; flex:none; }
+  main > .card { display:flex; flex-direction:column; }
+  .title-info { display:flex; align-items:center; gap:9px; }
+  .destination-info { position:relative; display:flex; align-items:center; }
+  button.info-icon { width:20px; height:20px; padding:0; border:1.5px solid #c4cbd4; border-radius:50%; background:transparent; color:#b0b8c3; font-size:13px; font-family:serif; font-weight:700; line-height:18px; }
+  .destination-popup { display:none; position:absolute; z-index:20; top:100%; left:-80px; width:min(380px,calc(100vw - 48px)); padding-top:12px; }
+  .destination-popup > h3 { margin:0; padding:14px 18px 0; background:#fff; border:1px solid var(--line); border-bottom:0; border-radius:10px 10px 0 0; font-size:15px; }
+  .destination-popup > .card-body { background:#fff; border:1px solid var(--line); border-top:0; border-radius:0 0 10px 10px; box-shadow:var(--shadow); }
+  .destination-info:hover .destination-popup, .destination-info:focus-within .destination-popup { display:block; }
+  .full-row, .workstation-button { display:block; width:100%; margin-top:10px; white-space:nowrap; text-align:center; }
+  .workstation-button { border:1px solid var(--line); border-radius:9px; padding:11px 12px; background:#f6f8fb; color:var(--ink-2); font-size:14.5px; font-weight:600; text-decoration:none; }
+  .workstation-button:hover { background:var(--accent-soft); }
+  main > .card:nth-child(2) .card-body { flex:1; display:flex; align-items:center; }
+  main > .card:nth-child(2) .camera { width:100%; }
+  /* Compact controls keep each row close to its media content size. */
+  main { grid-template-columns:minmax(0,360px) minmax(0,1fr); gap:12px; padding:14px 20px; }
+  .card-head { height:48px; padding:8px 14px; }
+  .card-body { padding:10px 12px; }
+  label.field { font-size:12px; margin-bottom:3px; }
+  .field-row { gap:8px; margin-bottom:8px; }
+  input, select { font-size:13px; padding:6px 9px; border-radius:7px; }
+  button { font-size:13px; padding:7px 10px; }
+  button.primary { font-size:14px; padding:8px 12px; }
+  .ctrl { gap:6px; margin-top:7px; }
+  .full-row, .workstation-button { margin-top:7px; }
+  .workstation-button { font-size:13px; padding:7px 10px; }
+  main > .card:nth-child(2) .card-body { flex:1; display:flex; padding:10px 12px; }
+  main > .card:nth-child(2) .camera { width:100%; height:100%; aspect-ratio:auto; min-height:0; }
+  .camera img { width:100%; height:100%; object-fit:contain; }
+  .kpis { gap:7px; }
+  .kpi { padding:7px 9px; }
+  .kpi b { font-size:14px; }
+  .kvs { margin-top:7px; }
+  .kv { padding:6px 0; font-size:13px; }
+  .final, .err { margin-top:8px; padding:9px 10px; font-size:13px; }
+  .faces { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .face { padding:8px; display:flex; flex-direction:column; }
+  .face h3 { font-size:13px; margin-bottom:5px; flex-wrap:wrap; gap:4px; }
+  .badge { font-size:11px; padding:2px 6px; }
+  .check-result { font-size:16px; margin:6px 0; }
+  .check-evidence { margin-top:auto; }
+  .face img { width:100%; height:auto; aspect-ratio:4 / 3; object-fit:contain; min-height:0; margin-bottom:4px; }
+  .check-evidence .note { margin-top:4px; font-size:11px; }
+  @media (max-width:980px) { main { grid-template-columns:minmax(0,1fr); padding:12px; } main > .card:nth-child(2) .camera { height:auto; aspect-ratio:3 / 1; } }
+  @media (max-width:580px) { .faces { grid-template-columns:minmax(0,1fr); } }
+
+  .camera-wrap { position:relative; width:100%; height:100%; min-width:0; }
+  .camera { position:relative; }
+  .zone-layer { position:absolute; pointer-events:none; }
+  .zone-hotspots { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .zone-hit { fill:transparent; pointer-events:all; cursor:help; }
+  .zone-tag { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; padding:3px 7px; border:1px solid rgba(255,255,255,.85);
+    border-radius:5px; box-shadow:0 1px 5px #0005; font-size:clamp(9px,1vw,12px); line-height:1.4; white-space:nowrap; cursor:help; }
+  .zone-tag.blue { background:#1f4fd8; } .zone-tag.red { background:#b82929; }
+  .zone-tooltip { position:absolute; z-index:4; width:min(270px,calc(100% - 16px)); padding:12px 14px; border-radius:9px; background:#fff;
+    color:var(--ink-2); border:1px solid var(--line); box-shadow:0 4px 20px #0c152433; font-size:12.5px; line-height:1.6; pointer-events:none; }
+  .zone-tooltip strong { display:block; margin-bottom:4px; color:var(--ink); font-size:13px; }
+
+  @media (max-width:980px) { .camera-wrap { height:auto; } }
 </style>
 </head>
 <body>
@@ -163,9 +214,14 @@
 </header>
 
 <main>
-  <div class="col">
     <section class="card">
-      <div class="card-head"><h2>검사 실행</h2><span class="sub">시료 1개 단위</span></div>
+      <div class="card-head"><div class="title-info"><h2>검사 실행</h2><div class="destination-info"><button type="button" class="info-icon" aria-label="분류 목적지 안내" aria-describedby="destinationHelp">i</button><div id="destinationHelp" class="destination-popup" role="tooltip"><h3>분류 목적지</h3><div class="card-body"><p class="note" style="margin-top:0;margin-bottom:10px">종이 위치는 카메라로 자동 확인</p>
+        <div class="zones">
+          <div class="zone blue"><strong>파랑 영역</strong><span>정상 판정<br>필수 검사 항목 모두 확인</span></div>
+          <div class="zone red"><strong>빨강 영역</strong><span>불량 및 확인 필요<br>이상 의심 · 미판정 · 측정 불가</span></div>
+        </div>
+        <p class="note">이상이 발견되면 남은 검사를 생략할 수 있습니다. 센서 오류나 연결 끊김으로 검사를 끝내지 못하면 분류를 중단합니다.</p>
+      </div></div></div></div><span class="sub">시료 1개 단위</span></div>
       <div class="card-body">
         <div class="field-row">
           <div><label class="field" for="specimen">시료 ID</label><input id="specimen" placeholder="비우면 자동 번호" autocomplete="off"></div>
@@ -185,7 +241,24 @@
           <button id="resume" class="sec">재개</button>
           <button id="abort" class="danger">중단</button>
         </div>
-        <a class="workstation-link" href="/hub">통합 워크스테이션 <span aria-hidden="true">↗</span></a>
+        <button id="robotHome" class="danger full-row">강제 HOME</button>
+        <a class="workstation-button" href="/hub" title="보라 1번·빨강 2번 한 화면">통합 워크스테이션 열기</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>실시간 카메라</h2><button id="liveBtn" type="button" class="small">끄기</button></div>
+      <div class="card-body">
+        <div class="camera-wrap" id="cameraWrap">
+          <div class="camera" id="cameraFrame"><span id="liveHint" hidden>카메라 연결 확인 중…</span><img id="live" alt="실시간 카메라">
+            <div class="zone-layer" id="zoneLayer" hidden>
+              <svg class="zone-hotspots" id="zoneHotspots" aria-hidden="true"><polygon class="zone-hit" id="zoneHitBlue"/><polygon class="zone-hit" id="zoneHitRed"/></svg>
+              <button class="zone-tag blue" id="zoneBlue" type="button" aria-label="파랑 영역 · 정상" aria-describedby="zoneTooltip" hidden>정상</button>
+              <button class="zone-tag red" id="zoneRed" type="button" aria-label="빨강 영역 · 확인 필요" aria-describedby="zoneTooltip" hidden>확인 필요</button>
+            </div>
+          </div>
+          <div class="zone-tooltip" id="zoneTooltip" role="tooltip" hidden><strong id="zoneTooltipTitle"></strong><span id="zoneTooltipText"></span></div>
+        </div>
       </div>
     </section>
 
@@ -204,33 +277,11 @@
         </div>
         <div id="error" class="err" hidden></div>
         <div id="final" class="final" hidden></div>
-        <div id="decisionReasons" class="decision-reasons" hidden aria-live="polite">
-          <strong id="decisionTitle"></strong><ul id="decisionList"></ul>
-        </div>
-      </div>
-    </section>
-
-  </div>
-
-  <div class="col">
-    <section class="card">
-      <div class="card-head"><h2>실시간 카메라</h2><button id="liveBtn" type="button" class="small">끄기</button></div>
-      <div class="card-body">
-        <div class="camera-wrap" id="cameraWrap">
-          <div class="camera" id="cameraFrame"><span id="liveHint" hidden>카메라 연결 확인 중…</span><img id="live" alt="실시간 카메라">
-            <div class="zone-layer" id="zoneLayer" hidden>
-              <svg class="zone-hotspots" id="zoneHotspots" aria-hidden="true"><polygon class="zone-hit" id="zoneHitBlue"/><polygon class="zone-hit" id="zoneHitRed"/></svg>
-              <button class="zone-tag blue" id="zoneBlue" type="button" aria-label="파랑 영역 · 정상" aria-describedby="zoneTooltip" hidden>정상</button>
-              <button class="zone-tag red" id="zoneRed" type="button" aria-label="빨강 영역 · 확인 필요" aria-describedby="zoneTooltip" hidden>확인 필요</button>
-            </div>
-          </div>
-          <div class="zone-tooltip" id="zoneTooltip" role="tooltip" hidden><strong id="zoneTooltipTitle"></strong><span id="zoneTooltipText"></span></div>
-        </div>
       </div>
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>포장 검사 결과</h2><span class="sub">누락·결함을 항목별로 확인</span></div>
+      <div class="card-head"><h2>포장 검사 결과</h2></div>
       <div class="card-body">
         <div class="faces">
           <div class="face" id="checkTape"></div>
@@ -239,7 +290,6 @@
         </div>
       </div>
     </section>
-  </div>
 
   <section class="card wide">
     <div class="card-head"><h2>검사 기록</h2><a class="link" href="/api/runs.csv">CSV 내려받기</a></div>
@@ -591,6 +641,13 @@ document.addEventListener('visibilitychange', () => {
 });
 $('resume').onclick = () => post('/api/resume');
 $('abort').onclick = () => { if (confirm('이 실행을 중단할까요? (팔은 현재 위치에서 멈춥니다)')) post('/api/abort'); };
+function forceHome() {
+  if (confirm('강제 HOME: 검사 중이면 중단하고, 집게를 열고(낮으면 6cm 수직 상승) HOME으로 보냅니다. 집게에 상자가 있으면 떨어집니다. 계속할까요?')) post('/api/robot/home');
+}
+$('robotHome').onclick = forceHome;
+document.addEventListener('keydown', e => {  // H 키: 강제 HOME(입력칸에 쓰는 중이면 무시)
+  if ((e.key === 'h' || e.key === 'H' || e.key === 'ㅗ') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) forceHome();
+});
 
 // 면 카드: 해당 면의 가장 최근 시도를 보여 준다
 function setImg(img, path) {
@@ -600,7 +657,7 @@ function setImg(img, path) {
 function renderCheck(el, check) {
   if (!el.dataset.built) {
     el.innerHTML = '<h3><span></span><span class="badge"></span></h3><div class="reasons check-result"></div>' +
-      '<details class="check-evidence"><summary>검사 사진 보기</summary><img><p class="note"></p></details>';
+      '<div class="check-evidence"><img><p class="note"></p></div>';
     el.dataset.built = '1';
   }
   el.className = 'face ' + check.kind;
@@ -609,7 +666,7 @@ function renderCheck(el, check) {
   badge.textContent = {waiting:'대기', ok:'확인 완료', defect:'이상 의심', review:'확인 필요', error:'오류'}[check.kind];
   badge.className = 'badge ' + {ok:'no_anomaly', defect:'suspect', review:'review', error:'unmeasurable'}[check.kind];
   el.querySelector('.reasons').textContent = check.title;
-  const image = el.querySelector('img'), evidence = el.querySelector('details');
+  const image = el.querySelector('img'), evidence = el.querySelector('.check-evidence');
   const source = check.source, path = source?.images?.[check.key === 'coolant' ? 'lwir' : 'rgb'];
   evidence.hidden = !path;
   image.alt = check.label + ' 촬영 사진';
@@ -657,13 +714,6 @@ async function poll() {
       fin.textContent = (run.bin === 'ok' ? '정상 판정' : '불량·확인 필요') + ' → ' + (BIN[run.bin] || '분류 확인 필요') +
         (run.placed_bin ? ' · 배치 ' + (BIN[run.placed_bin] || run.placed_bin) : ' · 배치 확인 대기');
     } else fin.hidden = true;
-    const summary = PacReasons.summarizeRun(run || {});
-    $('decisionReasons').hidden = !run || (!run.final_verdict && !run.error && !summary.lines.length);
-    $('decisionReasons').className = 'decision-reasons ' + summary.kind;
-    $('decisionTitle').textContent = summary.title;
-    $('decisionList').replaceChildren(...summary.lines.map(line => {
-      const li = document.createElement('li'); li.textContent = line; return li;
-    }));
     const ins = run ? run.inspections : [];
     const checkIds = {tape:'checkTape', bottom:'checkBottom', coolant:'checkCoolant'};
     for (const check of PacReasons.describeChecks(ins)) renderCheck($(checkIds[check.key]), check);
