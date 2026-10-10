@@ -414,3 +414,16 @@ codex/vision_pick/coolant_lab.py는 peer sensor/rules.py coolant_delta와 rules_
 현장 HTML은 최신 Claude 강제 HOME/H·hub 기능과 나머지 동작을 보존한 부분 수정으로 적용했고 실제8000을 새로고침해 두 문구 삭제와 세 카메라 표시를 확인했다. 센서 파일에도 fast 표시 경로를 부분 적용했지만 기존 Python 프로세스는 구 코드를 캐시하고 있어 백엔드 최적화는 아직 활성화되지 않았다. 실행 중 센서8001 PID32384와 미리보기8002 PID20996의 종료/재시작 명령은 자동 승인 검토가 차단했다(구체적인 이유 미제공). 사용자 수동 종료 확인 뒤에도 같은 PID/listener와 구 OpenAPI를 확인해 새 프로세스 시작을 취소했다. 중복 카메라 소유자를 시작하거나 로봇8000을 종료하지 않았다. 수동 명령의 실제 오류/출력 확인 및 두 포트 해제 후 동일 venv/인자로 시작하고 성능을 재측정해야 한다.
 
 성능 증거: C:/Users/tilti/PAC2026_data/station_video_fps_20261010/before.json에서 sensor 응답 중앙값356.6ms, preview534.1ms(각5개 요청). 화면 갱신 대기만 제거한 뒤 브라우저 요청 주기는 약1.31회/s였으며 새 백엔드의 실제fps 또는15fps 달성을 주장하지 않는다. 같은 폴더에 sensor.before.py, index.before.html, browser_pacing.json, camera_captions_removed.png가 있다. 기존 미커밋 bootstrap.py는 이번 수정/커밋에서 제외한다.
+
+
+## 2026-10-10 — 통합 워크스테이션 버튼과 VIS 분류 영역 안내
+
+사용자가 통합 워크스테이션 링크의 버튼화, 바로 아래 회색 문구 삭제, 분류 목적지를 VIS 실제 영역 위에 간단히 표시하고 마우스를 올리면 자세한 설명을 보이도록 요청했다. 기존 현장 index.html의 /hub 링크·강제 HOME과 sensor-live 프록시, sensor/zones.py의 종이 색 기준, live.py의 RGB 패널 크기(480×360)를 먼저 확인했다. /api/status의 zones는 로봇 목적지 이름이고 /zones는 Gemini 컬러 좌표이므로 Arducam VIS 위에 잘못 투영하지 않았다.
+
+공유 station/web/index.html과 C:/PAC2026_system/station/web/index.html만 변경했다. /hub 이동은 큰 버튼 모양의 링크로 바꾸고 아래 회색 문단을 제거했다. 별도 분류 목적지 카드 대신 VIS의 실제 파랑 종이에 '정상', 빨강 종이에 '확인 필요' 표시와 종이 다각형 hover 영역을 넣었다. hover/키보드 포커스/클릭으로 상세 설명, Escape로 닫기가 가능하다. 표시 좌표는 VIS 픽셀에서 종이 색의 가장 큰 연결 영역과 근처 조각의 볼록 다각형을 구한다. 좌우를 고정하지 않고 색과 실제 위치를 따른다. 화면 크기 및 이미지 object-fit의 여백을 반영하며 검출되지 않으면 해당 표시를 숨긴다. 카메라 끄기/실패 때 표시를 숨긴다.
+
+기존 outlined feed는 다른 포트이고 CORS 헤더가 없어 캔버스에서 읽을 수 없으므로, 최대3초에 한 번 기존 같은 출처 /sensor-live 스냅샷을 160×120 VIS로 줄여 표시 위치만 계산한다. 검사/locator/로봇 목표에는 사용하지 않는다. 추가 snapshot은 HTTP 표시 요청이며 새 카메라 장치 핸들·새 서버·재시작은 없다. 라이브 파일은 백업/hash와 동시 변경을 확인한 부분 수정으로 적용해 Claude HOME/H·hub·기타 현장 코드를 유지했다. 공유 app.py는 아직 /hub 구현이 없어 버튼은 현재 현장의 기존 hub 배포를 전제로 한다. 상대의 hub/로봇 모듈 전체를 이번 표시 커밋에 복제하지 않았다.
+
+검증: 공유/현장 inline JS 파싱과 중복 ID 없음, git diff --check 통과. 실제 VIS 저장 사진의 두 종이 중심은 기존 Python paper_hulls 중심과15px 이내로 일치했고, 없는 종이는 무표시, 좌우 바뀐 합성 장면은 색을 따라 표시, 상단 배경 색은 제외되는 오프라인 Node 검사를 통과했다. 별도 pytest나 로봇 테스트는 실행하지 않았다. 실제8000 브라우저에서 버튼으로 /hub 페이지 열림·회색 문구와 별도 목적지 카드 삭제·VIS 두 표시·빨강 클릭/파랑 키보드 포커스 설명·Escape 닫기·카메라 끄기 때 숨김/켜기 후 복구·콘솔 경고/오류 없음 확인. 입력 R021713/갈색/demo를 보존했다. 검사/HOME/공급/자동 연속 버튼은 누르지 않았다.
+
+증거: C:/Users/tilti/PAC2026_data/station_zone_ui_20261010/index.before.html, before.jpg, expected_zones.json, zone_helper_checks.json, workstation_button.png, vis_zone_labels.png, red_zone_tooltip.png. 이 색 기반 표시 검증은 실제 로봇 분류 위치/집기/냉매 정확도 검증이 아니다. 이전 영상 백엔드 최적화의 서버 재시작 대기는 별도로 남아 있다. 기존 미커밋 codex/vision_pick/bootstrap.py는 제외한다.
